@@ -124,9 +124,8 @@ function pickCol(fields,keys){
   return -1;
 }
 
-async function fetchYearPrice(code,year){
-  const j = await fetchJSON(`${PROXY}/rwd/zh/afterTrading/FMSRFK?date=${year}0101&stockNo=${code}&response=json`);
-  if(j.stat!=="OK"||!j.data||!j.data.length) return null;
+function parseYearPrice(j){
+  if(!j||j.stat!=="OK"||!j.data||!j.data.length) return null;
   const f=j.fields||[];
   const iMon=pickCol(f,["月份","月"]), iHi=pickCol(f,["最高價"]), iLo=pickCol(f,["最低價"]), iAvg=pickCol(f,["平均"]);
   const months=j.data.map(row=>({
@@ -141,49 +140,25 @@ async function fetchYearPrice(code,year){
   };
 }
 
-async function fetchMonthRatio(code,year,month){
-  const mm=String(month).padStart(2,"0");
-  const j = await fetchJSON(`${PROXY}/rwd/zh/afterTrading/BWIBBU?date=${year}${mm}01&stockNo=${code}&response=json`);
-  if(j.stat!=="OK"||!j.data||!j.data.length) return null;
+function parseMonthRatio(j){
+  if(!j||j.stat!=="OK"||!j.data||!j.data.length) return null;
   const f=j.fields||[];
   const iPE=pickCol(f,["本益比"]), iPB=pickCol(f,["股價淨值比"]), iY=pickCol(f,["殖利率"]);
   const rows=j.data.map(r=>({pe:num(r[iPE]),pb:num(r[iPB]),y:num(r[iY])}));
   const mean=arr=>{const a=arr.filter(v=>v!=null&&v>0);return a.length?a.reduce((s,v)=>s+v,0)/a.length:null;};
-  return {pe:mean(rows.map(r=>r.pe)),pb:mean(rows.map(r=>r.pb)),yield:mean(rows.map(r=>r.y))};
+  const out={pe:mean(rows.map(r=>r.pe)),pb:mean(rows.map(r=>r.pb)),yield:mean(rows.map(r=>r.y))};
+  return (out.pe||out.pb||out.yield)?out:null;
 }
 
-async function loadYearData(code,year,isCurrent,quote){
-  const ck=`twri-y-${code}-${year}`;
-  if(!isCurrent){ const c=cacheGet(ck); if(c) return c; }
-  else { const c=cacheGet(ck); if(c&&c._d===todayKey()) return c; }
-
-  const price = await fetchYearPrice(code,year);
+function buildYearData(year,price,ratio,refPrice){
   if(!price) return null;
-  await sleep(350);
-
-  let ratio=null, refPrice=null;
-  if(isCurrent && quote && quote.pe!=null){
-    ratio={pe:quote.pe,pb:quote.pb,yield:quote.yield};
-    refPrice=quote.close;
-  } else {
-    const lastMon = isCurrent ? price.months[price.months.length-1].mon : 12;
-    for(let m=lastMon;m>=1&&!ratio;m--){
-      ratio = await fetchMonthRatio(code,year,m);
-      if(ratio){
-        const mrow=price.months.find(x=>x.mon===m);
-        refPrice = mrow ? (mrow.avg??(mrow.hi+mrow.lo)/2) : price.avg;
-      }
-      await sleep(350);
-    }
-  }
-
   let eps=null,bvps=null,dps=null;
   if(ratio&&refPrice){
     if(ratio.pe) eps=refPrice/ratio.pe;
     if(ratio.pb) bvps=refPrice/ratio.pb;
     if(ratio.yield) dps=refPrice*ratio.yield/100;
   }
-  const d={
+  return {
     year, hi:price.hi, lo:price.lo, avg:price.avg,
     eps,bvps,dps,
     peHi: eps?price.hi/eps:null, peLo: eps?price.lo/eps:null, peAvg: eps?price.avg/eps:null,
@@ -191,8 +166,41 @@ async function loadYearData(code,year,isCurrent,quote){
     yAtHi: dps?dps/price.hi*100:null, yAtLo: dps?dps/price.lo*100:null, yAtAvg: dps?dps/price.avg*100:null,
     _d:todayKey(),
   };
-  cacheSet(ck,d);
-  return d;
+}
+
+async function loadHistory(code,years,quote){
+  const nowY=years[years.length-1];
+  const cached={};
+  let allCached=true;
+  years.forEach(y=>{
+    const c=cacheGet(`twri-y-${code}-${y}`);
+    if(c&&(y<nowY||c._d===todayKey())) cached[y]=c;
+    else allCached=false;
+  });
+  if(allCached) return years.map(y=>cached[y]);
+
+  const bundle=await fetchJSON(`${PROXY}/bundle?stockNo=${code}&from=${years[0]}&to=${nowY}`);
+  return years.map(y=>{
+    if(cached[y]) return cached[y];
+    const raw=(bundle.years&&bundle.years[y])||{};
+    const price=parseYearPrice(raw.price);
+    if(!price) return null;
+    let ratio=null,refPrice=null;
+    if(y===nowY&&quote&&quote.pe!=null){
+      ratio={pe:quote.pe,pb:quote.pb,yield:quote.yield};
+      refPrice=quote.close;
+    } else {
+      ratio=parseMonthRatio(raw.ratio)||parseMonthRatio(raw.ratioPrev);
+      if(ratio){
+        const refMon=(y<nowY)?12:price.months[price.months.length-1].mon;
+        const mrow=price.months.find(x=>x.mon===refMon);
+        refPrice=mrow?(mrow.avg??(mrow.hi+mrow.lo)/2):price.avg;
+      }
+    }
+    const d=buildYearData(y,price,ratio,refPrice);
+    if(d) cacheSet(`twri-y-${code}-${y}`,d);
+    return d;
+  });
 }
 
 /* ============ 河流圖 (SVG) ============ */
@@ -318,20 +326,15 @@ function App(){
     const myRun=++abortRef.current;
     const nowY=new Date().getFullYear();
     const years=[]; for(let y=nowY-YEARS_BACK+1;y<=nowY;y++) years.push(y);
-    const out=[];
+    setProg({done:1,total:2,msg:`向 TWSE 取得 ${c.name} 近 ${YEARS_BACK} 年資料…`});
     try{
-      for(let i=0;i<years.length;i++){
-        if(abortRef.current!==myRun) return;
-        setProg({done:i,total:years.length,msg:`讀取 ${years[i]-1911} 年資料…`});
-        const d=await loadYearData(c.code,years[i],years[i]===nowY,quote);
-        out.push(d);
-        await sleep(150);
-      }
+      const out=await loadHistory(c.code,years,quote);
       if(abortRef.current!==myRun) return;
-      setHist({years,data:out});
+      if(out.every(d=>d==null)) setErr(`「${c.name}」查無歷史股價資料（可能是新上市或代號有誤）。`);
+      else setHist({years,data:out});
     }catch(e){
-      setErr("歷史資料讀取失敗："+e.message+"。可能是 TWSE 流量限制，請稍候幾秒再查一次（已讀取的年度會快取，不會重抓）。");
-      if(out.length) setHist({years:years.slice(0,out.length),data:out});
+      if(abortRef.current!==myRun) return;
+      setErr("歷史資料讀取失敗："+e.message+"。請稍候幾秒再查一次。");
     }finally{
       if(abortRef.current===myRun) setLoading(false);
     }
@@ -461,7 +464,7 @@ function App(){
         <div className="card progress">
           <div>{prog.msg}</div>
           <div className="progressbar"><div style={{width:(prog.done/prog.total*100)+"%"}}/></div>
-          <div style={{fontSize:12}}>首次查詢約需 5–10 秒（TWSE 有流量限制），之後會使用本機快取秒開</div>
+          <div style={{fontSize:12}}>首次查詢約 2–4 秒，之後同一檔會用快取秒開</div>
         </div>
       )}
 
