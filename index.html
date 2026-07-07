@@ -72,6 +72,7 @@ button:disabled{opacity:.5;cursor:default}
 const {useState,useEffect,useRef,useMemo,useCallback} = React;
 
 /* ============ 常數 ============ */
+const PROXY = "https://tw-river-api.dale199707.workers.dev";
 const YEARS_BACK = 9;
 const BAND_YEARS = 3;
 const INDUSTRY = {"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活"};
@@ -97,9 +98,9 @@ async function loadSnapshots(){
   const c = cacheGet(key);
   if(c) return c;
   const [info,bwi,avg] = await Promise.all([
-    fetchJSON("https://openapi.twse.com.tw/v1/opendata/t187ap03_L"),
-    fetchJSON("https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"),
-    fetchJSON("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_AVG_ALL"),
+    fetchJSON(`${PROXY}/openapi/v1/opendata/t187ap03_L`),
+    fetchJSON(`${PROXY}/openapi/v1/exchangeReport/BWIBBU_ALL`),
+    fetchJSON(`${PROXY}/openapi/v1/exchangeReport/STOCK_DAY_AVG_ALL`),
   ]);
   const companies = info.map(r=>({
     code:r["公司代號"], name:r["公司簡稱"]||r["公司名稱"], full:r["公司名稱"],
@@ -124,7 +125,7 @@ function pickCol(fields,keys){
 }
 
 async function fetchYearPrice(code,year){
-  const j = await fetchJSON(`https://www.twse.com.tw/rwd/zh/afterTrading/FMSRFK?date=${year}0101&stockNo=${code}&response=json`);
+  const j = await fetchJSON(`${PROXY}/rwd/zh/afterTrading/FMSRFK?date=${year}0101&stockNo=${code}&response=json`);
   if(j.stat!=="OK"||!j.data||!j.data.length) return null;
   const f=j.fields||[];
   const iMon=pickCol(f,["月份","月"]), iHi=pickCol(f,["最高價"]), iLo=pickCol(f,["最低價"]), iAvg=pickCol(f,["平均"]);
@@ -142,7 +143,7 @@ async function fetchYearPrice(code,year){
 
 async function fetchMonthRatio(code,year,month){
   const mm=String(month).padStart(2,"0");
-  const j = await fetchJSON(`https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU?date=${year}${mm}01&stockNo=${code}&response=json`);
+  const j = await fetchJSON(`${PROXY}/rwd/zh/afterTrading/BWIBBU?date=${year}${mm}01&stockNo=${code}&response=json`);
   if(j.stat!=="OK"||!j.data||!j.data.length) return null;
   const f=j.fields||[];
   const iPE=pickCol(f,["本益比"]), iPB=pickCol(f,["股價淨值比"]), iY=pickCol(f,["殖利率"]);
