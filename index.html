@@ -64,6 +64,10 @@ button:disabled{opacity:.5;cursor:default}
 .errbox{background:#3a1212;border:1px solid #7f1d1d;color:#fca5a5;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:14px;line-height:1.6}
 .note{color:var(--dim);font-size:12px;line-height:1.7;margin-top:8px}
 .judgerow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;margin-bottom:8px;font-size:14px}
+.tabs{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0}
+.tab{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;color:var(--dim);padding:10px 18px;font-size:15px;cursor:pointer}
+.tab:hover{color:var(--text);filter:none}
+.tab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:700}
 </style>
 </head>
 <body>
@@ -304,6 +308,7 @@ function App(){
   const [prog,setProg]=useState({done:0,total:1,msg:""});
   const [err,setErr]=useState(null);
   const [judgePrice,setJudgePrice]=useState("");
+  const [tab,setTab]=useState("info");
   const abortRef=useRef(0);
 
   useEffect(()=>{ loadSnapshots().then(setSnap).catch(e=>setSnapErr(String(e))); },[]);
@@ -371,7 +376,12 @@ function App(){
       if(!yl||!yh||!dpsNow) return null;
       return {hiUp:dpsNow/yl.min*100,hiDn:dpsNow/yl.max*100,watch:dpsNow/yl.avg*100,loUp:dpsNow/yh.min*100,loDn:dpsNow/yh.max*100};
     })();
-    return {rows,epsNow,bvpsNow,dpsNow,priceBand,peBand,pbBand,yBand};
+    const past=rows.filter(r=>r&&r.year<rows[rows.length-1].year&&r.eps>0&&r.dps>0);
+    const payoutLast=past.length?past[past.length-1].dps/past[past.length-1].eps:null;
+    const p7=past.slice(-7);
+    const payout7=p7.length?p7.reduce((s,r)=>s+r.dps/r.eps,0)/p7.length:null;
+    const dpsLast=past.length?past[past.length-1].dps:null;
+    return {rows,epsNow,bvpsNow,dpsNow,priceBand,peBand,pbBand,yBand,payoutLast,payout7,dpsLast};
   },[hist,stock]);
 
   const jp=num(judgePrice);
@@ -440,23 +450,51 @@ function App(){
       {err&&<div className="errbox">{err}</div>}
 
       {stock&&(
-        <div className="card">
-          <div className="stockhead">
-            <span className="name">{stock.name}</span>
-            <span className="code mono">{stock.code}</span>
-            <span className="price mono">{fmt(stock.quote.close,stock.quote.close>=500?0:2)}</span>
-            <span style={{color:"var(--dim)",fontSize:13}}>收盤價</span>
+        <React.Fragment>
+          <div className="card">
+            <div className="stockhead" style={{marginBottom:0}}>
+              <span className="name">{stock.name}</span>
+              <span className="code mono">{stock.code}</span>
+              <span className="price mono">{fmt(stock.quote.close,stock.quote.close>=500?0:2)}</span>
+              <span style={{color:"var(--dim)",fontSize:13}}>收盤價</span>
+            </div>
           </div>
+          <div className="tabs">
+            <button className={"tab"+(tab==="info"?" active":"")} onClick={()=>setTab("info")}>基本資訊</button>
+            <button className={"tab"+(tab==="judge"?" active":"")} onClick={()=>setTab("judge")}>價格位階</button>
+            <button className={"tab"+(tab==="charts"?" active":"")} onClick={()=>setTab("charts")}>河流圖</button>
+          </div>
+        </React.Fragment>
+      )}
+
+      {stock&&tab==="info"&&(
+        <div className="card">
+          <div className="cardtitle">公司基本資料</div>
           <div className="infogrid">
+            <div className="infoitem"><div className="k">市場類別</div><div className="v">上市公司</div></div>
             <div className="infoitem"><div className="k">產業別</div><div className="v">{stock.ind}</div></div>
             <div className="infoitem"><div className="k">資本額（億）</div><div className="v mono">{stock.capital!=null?fmt(stock.capital/1e8,1):"—"}</div></div>
             <div className="infoitem"><div className="k">成立年數</div><div className="v mono">{yearsAgo(stock.est)}</div></div>
             <div className="infoitem"><div className="k">掛牌年數</div><div className="v mono">{yearsAgo(stock.ipo)}</div></div>
+            <div className="infoitem"><div className="k">董事長</div><div className="v">{stock.chair}</div></div>
             <div className="infoitem"><div className="k">本益比</div><div className="v mono">{fmt(stock.quote.pe,2)}</div></div>
             <div className="infoitem"><div className="k">股價淨值比</div><div className="v mono">{fmt(stock.quote.pb,2)}</div></div>
             <div className="infoitem"><div className="k">殖利率</div><div className="v mono">{stock.quote.yield!=null?fmt(stock.quote.yield,2)+"%":"—"}</div></div>
-            <div className="infoitem"><div className="k">董事長</div><div className="v">{stock.chair}</div></div>
           </div>
+          {model&&(
+            <React.Fragment>
+              <div className="cardtitle" style={{marginTop:16}}>財務推估（由市場資料回推）</div>
+              <div className="infogrid">
+                <div className="infoitem"><div className="k">每股盈餘（近四季）</div><div className="v mono">{model.epsNow!=null?fmt(model.epsNow,1)+" 元":"—"}</div></div>
+                <div className="infoitem"><div className="k">每股淨值</div><div className="v mono">{model.bvpsNow!=null?fmt(model.bvpsNow,1)+" 元":"—"}</div></div>
+                <div className="infoitem"><div className="k">每股股息</div><div className="v mono">{model.dpsNow!=null?fmt(model.dpsNow,2)+" 元":"—"}</div></div>
+                <div className="infoitem"><div className="k">去年現金股利</div><div className="v mono">{model.dpsLast!=null?fmt(model.dpsLast,2)+" 元":"—"}</div></div>
+                <div className="infoitem"><div className="k">去年配息率</div><div className="v mono">{model.payoutLast!=null?fmt(model.payoutLast*100,1)+"%":"—"}</div></div>
+                <div className="infoitem"><div className="k">七年配息率</div><div className="v mono">{model.payout7!=null?fmt(model.payout7*100,1)+"%":"—"}</div></div>
+              </div>
+              <div className="note">配息率＝現金股利÷該年EPS；七年配息率為近七個完整年度的平均。每股盈餘／淨值／股息由收盤價與本益比／淨值比／殖利率回推，與財報數字可能有小幅差異。</div>
+            </React.Fragment>
+          )}
         </div>
       )}
 
@@ -468,8 +506,7 @@ function App(){
         </div>
       )}
 
-      {model&&!loading&&(
-        <React.Fragment>
+      {model&&!loading&&tab==="judge"&&(
           <div className="card">
             <div className="cardtitle">價格位階判斷（近 {YEARS_BACK} 年區間）</div>
             <div className="judge">
@@ -491,7 +528,10 @@ function App(){
               換算基準：目前 EPS {fmt(model.epsNow,2)}、每股淨值 {fmt(model.bvpsNow,1)}、每股股息 {fmt(model.dpsNow,2)}（由當日收盤價與本益比／淨值比／殖利率回推）。
             </div>
           </div>
+      )}
 
+      {model&&!loading&&tab==="charts"&&(
+        <React.Fragment>
           <div className="charts">
             <RiverChart title="股價河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.hi??null),lo:model.rows.map(r=>r.lo??null),avg:model.rows.map(r=>r.avg??null)}}
