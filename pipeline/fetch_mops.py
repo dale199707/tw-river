@@ -134,6 +134,7 @@ def parse_bulk_income(tables):
         rev_c = col_like(df, ["營業收入", "收益"])
         gp_c = col_like(df, ["營業毛利"])
         op_c = col_like(df, ["營業利益"])
+        nonop_c = col_like(df, ["營業外收入及支出", "營業外損益"])
         ni_c = col_like(df, ["淨利（淨損）歸屬於母公司", "淨利(淨損)歸屬於母公司", "本期淨利"])
         eps_c = col_like(df, ["基本每股盈餘"])
         for _, row in df.iterrows():
@@ -144,6 +145,7 @@ def parse_bulk_income(tables):
                 "rev": to_num(row[rev_c]) if rev_c is not None else None,
                 "gp": to_num(row[gp_c]) if gp_c is not None else None,
                 "op": to_num(row[op_c]) if op_c is not None else None,
+                "nonop": to_num(row[nonop_c]) if nonop_c is not None else None,
                 "ni": to_num(row[ni_c]) if ni_c is not None else None,
                 "eps": to_num(row[eps_c]) if eps_c is not None else None,
             }
@@ -160,6 +162,8 @@ def parse_bulk_balance(tables):
         asset_c = col_like(df, ["資產總計", "資產總額"])
         liab_c = col_like(df, ["負債總計", "負債總額"])
         eq_c = col_like(df, ["權益總計", "權益總額"])
+        ca_c = col_like(df, ["流動資產"])
+        cl_c = col_like(df, ["流動負債"])
         bvps_c = col_like(df, ["每股參考淨值"])
         for _, row in df.iterrows():
             code = str(row[code_c]).strip()
@@ -169,6 +173,8 @@ def parse_bulk_balance(tables):
                 "assets": to_num(row[asset_c]) if asset_c is not None else None,
                 "liab": to_num(row[liab_c]) if liab_c is not None else None,
                 "eq": to_num(row[eq_c]) if eq_c is not None else None,
+                "ca": to_num(row[ca_c]) if ca_c is not None else None,
+                "cl": to_num(row[cl_c]) if cl_c is not None else None,
                 "bvps": to_num(row[bvps_c]) if bvps_c is not None else None,
             }
     return out
@@ -184,6 +190,9 @@ DETAIL_ITEMS = [
     ("ap", ["應付帳款"]),
     ("ppe", ["不動產、廠房及設備", "不動產廠房及設備"]),
     ("cash_bs", ["現金及約當現金"]),
+    ("stb", ["短期借款"]),
+    ("ltb", ["長期借款"]),
+    ("lti", ["採用權益法之投資"]),
     ("dep", ["折舊費用"]),
     ("ocf", ["營業活動之淨現金流入", "營業活動之淨現金"]),
     ("capex", ["取得不動產、廠房及設備", "取得不動產廠房及設備"]),
@@ -364,7 +373,7 @@ def main():
         for (y, s) in quarters_between(y1, y2):
             k = qkey(y, s)
             sample = load_stock("2330")["q"].get(k, {})
-            if sample.get("rev") is not None and sample.get("assets") is not None:
+            if sample.get("rev") is not None and sample.get("ca") is not None:
                 print(f"[bulk] {k} 已有資料，略過")
                 continue
             run_bulk(y, s)

@@ -216,7 +216,7 @@ async function loadFin(code){
   }catch(e){ return null; }
 }
 
-const CUM_FIELDS=["rev","gp","op","ni","eps","dep","ocf","capex"];
+const CUM_FIELDS=["rev","gp","op","ni","eps","dep","ocf","capex","nonop"];
 function finQuarters(fin){
   if(!fin||!fin.q) return null;
   const rows=Object.keys(fin.q).map(k=>{
@@ -275,6 +275,39 @@ function QChart({title,labels,series,unit="",decimals=1}){
       </svg>
       <div className="legend">
         {series.map((s,si)=><span key={si} style={{color:"var(--dim)"}}><span style={{color:s.color,fontWeight:700}}>—</span> {s.name}</span>)}
+      </div>
+    </div>
+  );
+}
+
+function StackChart({title,labels,series,unit="億"}){
+  const W=460,H=230,PAD={l:14,r:56,t:20,b:26};
+  const n=labels.length;
+  const sums=labels.map((_,i)=>series.reduce((s,sr)=>s+(sr.data[i]||0),0));
+  const vmax=Math.max(...sums,1)*1.08;
+  const X=i=>PAD.l+i*(W-PAD.l-PAD.r)/Math.max(n-1,1);
+  const Y=v=>PAD.t+(1-v/vmax)*(H-PAD.t-PAD.b);
+  const step=Math.max(1,Math.ceil(n/9));
+  let base=labels.map(()=>0);
+  const areas=series.map(sr=>{
+    const top=base.map((b,i)=>b+(sr.data[i]||0));
+    const path=top.map((v,i)=>(i?"L":"M")+X(i).toFixed(1)+","+Y(v).toFixed(1)).join("")
+      +[...base].reverse().map((v,idx)=>{const i=n-1-idx;return "L"+X(i).toFixed(1)+","+Y(v).toFixed(1);}).join("")+"Z";
+    base=top;
+    return {path,color:sr.color,name:sr.name};
+  });
+  return (
+    <div className="chartpanel">
+      <div className="charthead">{title}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
+        {areas.map((a,i)=><path key={i} d={a.path} fill={a.color} opacity="0.85"/>)}
+        {labels.map((lb,i)=>i%step===0?(
+          <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="9.5" textAnchor="middle" className="mono">{lb}</text>
+        ):null)}
+        <text x={W-PAD.r+4} y={Y(sums[n-1])+4} fill="#e6edf3" fontSize="10.5" fontWeight="700" className="mono">{fmt(sums[n-1],0)}{unit}</text>
+      </svg>
+      <div className="legend" style={{flexWrap:"wrap"}}>
+        {series.map((s,si)=><span key={si} style={{color:"var(--dim)"}}><span style={{color:s.color,fontWeight:700}}>■</span> {s.name}</span>)}
       </div>
     </div>
   );
@@ -509,8 +542,44 @@ function App(){
       if(ni==null||dep==null||cap==null||!shares) return null;
       return (ni+dep-Math.abs(cap))*1000/shares;
     });
+    const B=v=>v!=null?v/1e5:null;
+    const revB=finRows.map((r,i)=>B(trailing4(finRows,i,"rev_q")));
+    const ocfB=finRows.map((r,i)=>B(trailing4(finRows,i,"ocf_q")));
+    const niB=finRows.map((r,i)=>B(trailing4(finRows,i,"ni_q")));
+    const opB=finRows.map((r,i)=>B(trailing4(finRows,i,"op_q")));
+    const nonopB=finRows.map((r,i)=>B(trailing4(finRows,i,"nonop_q")));
+    const stbB=finRows.map(r=>B(r.stb??(r.inv!=null?0:null)));
+    const ltbB=finRows.map(r=>B(r.ltb??(r.inv!=null?0:null)));
+    const borrowB=finRows.map((r,i)=>(stbB[i]!=null||ltbB[i]!=null)?(stbB[i]||0)+(ltbB[i]||0):null);
+    const fixedTurn=finRows.map((r,i)=>{const t=trailing4(finRows,i,"rev_q");return t!=null&&r.ppe?t/r.ppe*100:null;});
+    const invPct=finRows.map(r=>r.inv!=null&&r.ca?r.inv/r.ca*100:null);
+    const arPct=finRows.map(r=>r.ar!=null&&r.ca?r.ar/r.ca*100:null);
+    const apPct=finRows.map(r=>r.ap!=null&&r.liab?r.ap/r.liab*100:null);
+    const defensive=finRows.map((r,i)=>{
+      const c=trailing4(finRows,i,"rev_q"),g=trailing4(finRows,i,"gp_q"),o=trailing4(finRows,i,"op_q"),d=trailing4(finRows,i,"dep_q");
+      if(c==null||g==null||o==null||r.cash_bs==null||r.ar==null) return null;
+      const dailyOut=((c-g)+(g-o)-(d||0))/365;
+      return dailyOut>0?(r.cash_bs+r.ar)/dailyOut:null;
+    });
+    const outsideRet=finRows.map((r,i)=>{
+      const t=trailing4(finRows,i,"nonop_q");
+      const baseV=r.lti||r.eq;
+      return t!=null&&baseV?t/baseV*100:null;
+    });
+    const stack=finRows.map(r=>{
+      if(r.assets==null) return null;
+      const ppe=r.ppe||0,inv=r.inv||0,ar=r.ar||0,cash=r.cash_bs||0,lti=r.lti||0;
+      return {ppe:ppe/1e5,inv:inv/1e5,ar:ar/1e5,cash:cash/1e5,lti:lti/1e5,other:Math.max(r.assets-ppe-inv-ar-cash-lti,0)/1e5};
+    });
+    const lastQ=finRows[finRows.length-1];
+    const debtQuick=(lastQ&&lastQ.liab!=null&&lastQ.ca!=null&&lastQ.inv!=null&&(lastQ.ca-lastQ.inv)>0)?lastQ.liab/(lastQ.ca-lastQ.inv)*100:null;
+    const hasBorrow=finRows.some(r=>r.stb!=null||r.ltb!=null);
+    const hasNonop=finRows.some(r=>r.nonop!=null);
+    const hasCA=finRows.some(r=>r.ca!=null);
     const hasDetail=finRows.some(r=>r.inv!=null||r.dep!=null);
-    return {labels,gm,om,nm,epsQ,epsT,roe,roa,invD,arD,apD,ccc,oe,hasDetail};
+    return {labels,gm,om,nm,epsQ,epsT,roe,roa,invD,arD,apD,ccc,oe,hasDetail,
+      revB,ocfB,niB,opB,nonopB,stbB,ltbB,borrowB,fixedTurn,invPct,arPct,apPct,
+      defensive,outsideRet,stack,debtQuick,hasBorrow,hasNonop,hasCA};
   },[finRows,stock]);
 
   const jp=num(judgePrice);
@@ -631,6 +700,7 @@ function App(){
       {stock&&tab==="fin"&&(
         finView?(
           <React.Fragment>
+            <div className="cardtitle">獲利檢驗</div>
             <div className="charts">
               <QChart title="三率（單季）" labels={finView.labels} unit="%"
                 series={[
@@ -649,31 +719,106 @@ function App(){
                   {name:"ROA",color:"#53c8f5",data:finView.roa},
                 ]}/>
               {finView.hasDetail&&(
-                <QChart title="現金週期（天）" labels={finView.labels} unit="" decimals={0}
+                <QChart title="公司真的賺錢嗎？（每股・近四季）" labels={finView.labels} unit="元" decimals={2}
                   series={[
-                    {name:"存貨天數",color:"#ffd54a",data:finView.invD},
-                    {name:"應收天數",color:"#53c8f5",data:finView.arD},
-                    {name:"應付天數",color:"#8b98a9",data:finView.apD},
-                    {name:"現金循環",color:"#ff9142",data:finView.ccc},
-                  ]}/>
-              )}
-              {finView.hasDetail&&(
-                <QChart title="公司賺的是真錢嗎？（每股・近四季）" labels={finView.labels} unit="元" decimals={2}
-                  series={[
-                    {name:"每股業主盈餘（淨利＋折舊−資本支出）",color:"#4ade80",data:finView.oe},
+                    {name:"每股業主盈餘",color:"#4ade80",data:finView.oe},
                     {name:"每股盈餘",color:"#8b98a9",data:finView.epsT},
                   ]}/>
               )}
+              <QChart title="營收與現金流（近四季・億）" labels={finView.labels} unit="" decimals={0}
+                series={[
+                  {name:"營業收入",color:"#8b98a9",data:finView.revB},
+                  {name:"營業現金流",color:"#4ade80",data:finView.ocfB},
+                  {name:"稅後純益",color:"#53c8f5",data:finView.niB},
+                ]}/>
+              {finView.hasBorrow&&(
+                <QChart title="公司資金吃緊嗎？（億）" labels={finView.labels} unit="" decimals={0}
+                  series={[
+                    {name:"短期借款",color:"#ffd54a",data:finView.stbB},
+                    {name:"長期借款",color:"#4ade80",data:finView.ltbB},
+                    {name:"借款總額",color:"#c2410c",data:finView.borrowB},
+                    {name:"稅後純益",color:"#53c8f5",data:finView.niB},
+                  ]}/>
+              )}
+              {finView.stack.some(s=>s)&&(
+                <StackChart title="公司獲利轉換成何種資產？（億）" labels={finView.labels}
+                  series={[
+                    {name:"固定資產",color:"#2f7d5b",data:finView.stack.map(s=>s?s.ppe:0)},
+                    {name:"長期投資",color:"#1e3a8a",data:finView.stack.map(s=>s?s.lti:0)},
+                    {name:"存貨",color:"#65a30d",data:finView.stack.map(s=>s?s.inv:0)},
+                    {name:"應收帳款",color:"#7f1d1d",data:finView.stack.map(s=>s?s.ar:0)},
+                    {name:"現金",color:"#2563eb",data:finView.stack.map(s=>s?s.cash:0)},
+                    {name:"其他",color:"#374151",data:finView.stack.map(s=>s?s.other:0)},
+                  ]}/>
+              )}
+              {finView.hasNonop&&(
+                <QChart title="公司獲利來源？（近四季・億）" labels={finView.labels} unit="" decimals={0}
+                  series={[
+                    {name:"本業（營業利益）",color:"#53c8f5",data:finView.opB},
+                    {name:"業外收支",color:"#ff9142",data:finView.nonopB},
+                  ]}/>
+              )}
+              {finView.hasNonop&&(
+                <QChart title="業外投資比本業好嗎？（近四季）" labels={finView.labels} unit="%"
+                  series={[
+                    {name:"業外投資報酬率",color:"#8b98a9",data:finView.outsideRet},
+                    {name:"股東權益報酬率",color:"#53c8f5",data:finView.roe},
+                  ]}/>
+              )}
+              {model&&(
+                <QChart title="公司獲利能與股東分享嗎？（年）" labels={model.rows.map(r=>String(r.year-1911))} unit="" decimals={1}
+                  series={[
+                    {name:"現金股利（元）",color:"#53c8f5",data:model.rows.map(r=>r.dps??null)},
+                    {name:"現金配息率（%）",color:"#ff9142",data:model.rows.map(r=>(r.dps!=null&&r.eps>0)?r.dps/r.eps*100:null)},
+                  ]}/>
+              )}
             </div>
-            {!finView.hasDetail&&(
-              <div className="note" style={{marginTop:12}}>此檔尚未回補個別財報細項（存貨、應收應付、折舊、資本支出），現金週期與業主盈餘圖將在 pipeline 的 detail 回補完成後出現。</div>
+
+            {finView.hasDetail&&(
+              <React.Fragment>
+                <div className="cardtitle" style={{marginTop:16}}>成本檢驗</div>
+                <div className="charts">
+                  <QChart title="總成本與固定資產成本" labels={finView.labels} unit="%" decimals={0}
+                    series={[
+                      {name:"營收／固定資產（%・近四季）",color:"#8b98a9",data:finView.fixedTurn},
+                      {name:"毛利率（%）",color:"#53c8f5",data:finView.gm},
+                    ]}/>
+                  <QChart title="總現金成本（天）" labels={finView.labels} unit="" decimals={0}
+                    series={[
+                      {name:"現金週期",color:"#53c8f5",data:finView.ccc},
+                      {name:"防禦期",color:"#8b98a9",data:finView.defensive},
+                    ]}/>
+                  <QChart title="原料及成品成本" labels={finView.labels} unit="" decimals={0}
+                    series={[
+                      {name:"存貨佔流動資產（%）",color:"#8b98a9",data:finView.invPct},
+                      {name:"存貨週轉天數",color:"#53c8f5",data:finView.invD},
+                    ]}/>
+                  <QChart title="資金成本：應收帳款" labels={finView.labels} unit="" decimals={0}
+                    series={[
+                      {name:"應收佔流動資產（%）",color:"#8b98a9",data:finView.arPct},
+                      {name:"應收帳款天數",color:"#53c8f5",data:finView.arD},
+                    ]}/>
+                  <QChart title="資金成本：應付帳款" labels={finView.labels} unit="" decimals={0}
+                    series={[
+                      {name:"應付佔負債（%）",color:"#8b98a9",data:finView.apPct},
+                      {name:"應付帳款天數",color:"#53c8f5",data:finView.apD},
+                    ]}/>
+                </div>
+              </React.Fragment>
             )}
-            <div className="note" style={{marginTop:8}}>資料來源：公開資訊觀測站季報，由 GitHub Actions 每季自動更新。金額欄位單位為財報原值（千元），比率與每股數值已換算。</div>
+
+            {finView.debtQuick!=null&&(
+              <div className="note" style={{marginTop:12}}>負債／速動資產：{fmt(finView.debtQuick,1)}%（速動資產＝流動資產−存貨）</div>
+            )}
+            {!finView.hasDetail&&(
+              <div className="note" style={{marginTop:12}}>此檔尚未回補個別財報細項（存貨、應收應付、借款、折舊、資本支出），相關圖表將在 pipeline 的 detail 回補完成後出現。</div>
+            )}
+            <div className="note" style={{marginTop:8}}>資料來源：公開資訊觀測站季報，由 GitHub Actions 每季自動更新。「近四季」為最近四個單季合計；業外投資報酬率以業外收支÷長期投資（無長投資料時以股東權益）估算。</div>
           </React.Fragment>
         ):(
           <div className="card" style={{textAlign:"center",padding:"40px 16px",color:"var(--dim)"}}>
             此檔尚無財報資料檔（data/fin/{stock.code}.json）<br/>
-            <span style={{fontSize:12}}>執行 pipeline 的 bulk-backfill 之後，全部上市公司的季報彙總就會建檔；detail 回補完成後會再加上現金週期與業主盈餘。</span>
+            <span style={{fontSize:12}}>執行 pipeline 的 bulk-backfill 之後，全部上市公司的季報彙總就會建檔；detail 回補完成後會再加上成本檢驗各圖。</span>
           </div>
         )
       )}
