@@ -601,6 +601,15 @@ function App(){
       return {ppe:ppe/1e5,inv:inv/1e5,ar:ar/1e5,cash:cash/1e5,lti:lti/1e5,other:Math.max(r.assets-ppe-inv-ar-cash-lti,0)/1e5};
     });
     const lastQ=finRows[finRows.length-1];
+    const li2=finRows.length-1;
+    const depT4=trailing4(finRows,li2,"dep_q");
+    const niT4=trailing4(finRows,li2,"ni_q");
+    const depPS=(depT4!=null&&shares)?depT4*1000/shares:null;
+    const depYears=(depT4>0&&lastQ.ppe)?lastQ.ppe/depT4:null;
+    const borrowLast=(lastQ.stb!=null||lastQ.ltb!=null)?(lastQ.stb||0)+(lastQ.ltb||0):null;
+    const debtYears=(borrowLast!=null&&niT4>0)?borrowLast/niT4:null;
+    const depB=finRows.map((r,i)=>B(trailing4(finRows,i,"dep_q")));
+    const capexB=finRows.map((r,i)=>{const t=trailing4(finRows,i,"capex_q");return t!=null?Math.abs(t)/1e5:null;});
     const debtQuick=(lastQ&&lastQ.liab!=null&&lastQ.ca!=null&&lastQ.inv!=null&&(lastQ.ca-lastQ.inv)>0)?lastQ.liab/(lastQ.ca-lastQ.inv)*100:null;
     const hasBorrow=finRows.some(r=>r.stb!=null||r.ltb!=null);
     const hasNonop=finRows.some(r=>r.nonop!=null);
@@ -608,8 +617,21 @@ function App(){
     const hasDetail=finRows.some(r=>r.inv!=null||r.dep!=null);
     return {labels,gm,om,nm,epsQ,epsT,roe,roa,invD,arD,apD,ccc,oe,depCF,hasDetail,
       revB,ocfB,niB,opB,nonopB,stbB,ltbB,borrowB,fixedTurn,invPct,arPct,apPct,
-      defensive,outsideRet,stack,debtQuick,hasBorrow,hasNonop,hasCA};
+      defensive,outsideRet,stack,debtQuick,hasBorrow,hasNonop,hasCA,
+      depPS,depYears,debtYears,depB,capexB};
   },[finRows,stock]);
+
+  const divRows=useMemo(()=>{
+    if(!fin||!fin.div||!fin.div.length) return null;
+    const rows=fin.div.map(d=>{
+      const ym=String(d.p).match(/(\d{2,3})\s*年/);
+      const qm=String(d.p).match(/第\s*([1-4])\s*季/);
+      const hm=String(d.p).match(/(上|下)半年/);
+      return {...d,y:ym?+ym[1]:null,s:qm?+qm[1]:(hm?(hm[1]==="上"?2:4):0)};
+    }).filter(d=>d.y!=null);
+    rows.sort((a,b)=>a.y-b.y||a.s-b.s);
+    return rows.length?rows:null;
+  },[fin]);
 
   const jp=num(judgePrice);
   const judge=useMemo(()=>{
@@ -720,6 +742,9 @@ function App(){
                 <div className="infoitem"><div className="k">去年現金股利</div><div className="v mono">{model.dpsLast!=null?fmt(model.dpsLast,2)+" 元":"—"}</div></div>
                 <div className="infoitem"><div className="k">去年配息率</div><div className="v mono">{model.payoutLast!=null?fmt(model.payoutLast*100,1)+"%":"—"}</div></div>
                 <div className="infoitem"><div className="k">七年配息率</div><div className="v mono">{model.payout7!=null?fmt(model.payout7*100,1)+"%":"—"}</div></div>
+                {finView&&finView.depPS!=null&&<div className="infoitem"><div className="k">折舊利益（每股折舊）</div><div className="v mono">{fmt(finView.depPS,1)+" 元"}</div></div>}
+                {finView&&finView.depYears!=null&&<div className="infoitem"><div className="k">折舊年數</div><div className="v mono">{fmt(finView.depYears,2)}</div></div>}
+                {finView&&finView.debtYears!=null&&<div className="infoitem"><div className="k">償債年數</div><div className="v mono">{fmt(finView.debtYears,2)}</div></div>}
               </div>
               <div className="note">配息率＝現金股利÷該年EPS；七年配息率為近七個完整年度的平均。每股盈餘／淨值／股息由收盤價與本益比／淨值比／殖利率回推，與財報數字可能有小幅差異。</div>
             </React.Fragment>
@@ -801,6 +826,13 @@ function App(){
                   series={[
                     {name:"現金股利（元）",color:"#53c8f5",bar:true,data:model.rows.map(r=>r.dps??null)},
                     {name:"現金配息率（%）",color:"#ff9142",data:model.rows.map(r=>(r.dps!=null&&r.eps>0)?r.dps/r.eps*100:null)},
+                  ]}/>
+              )}
+              {divRows&&(
+                <QChart title="現金股利（每次發放）" labels={divRows.slice(-20).map(d=>d.s?`${d.y}Q${d.s}`:`${d.y}年`)} unit="元" decimals={2}
+                  series={[
+                    {name:"現金股利",color:"#53c8f5",bar:true,data:divRows.slice(-20).map(d=>d.cash||null)},
+                    {name:"股票股利",color:"#ffd54a",bar:true,data:divRows.slice(-20).map(d=>d.stock||null)},
                   ]}/>
               )}
             </div>
@@ -892,42 +924,124 @@ function App(){
             </div>
           )}
           {finView&&finRows?(
-            <div className="card">
-              <div className="cardtitle">逐季財報明細</div>
-              <div className="tablewrap">
-                <table className="pricetable small mono">
-                  <thead><tr>
-                    <th>季度</th><th>營收(億)</th><th>毛利率</th><th>營利率</th><th>純益率</th>
-                    <th>單季EPS</th><th>近4Q EPS</th><th>ROE</th><th>每股淨值</th>
-                    <th>存貨天數</th><th>應收天數</th><th>應付天數</th><th>現金週期</th>
-                    <th>業主盈餘</th><th>借款總額(億)</th><th>營業現金流(億)</th>
-                  </tr></thead>
-                  <tbody>
-                    {finRows.map((r,i)=>({r,i})).reverse().map(({r,i})=>(
-                      <tr key={r.k}>
-                        <td>{finView.labels[i]}</td>
-                        <td>{r.rev_q!=null?fmt(r.rev_q/1e5,0):"—"}</td>
-                        <td>{finView.gm[i]!=null?fmt(finView.gm[i],1)+"%":"—"}</td>
-                        <td>{finView.om[i]!=null?fmt(finView.om[i],1)+"%":"—"}</td>
-                        <td>{finView.nm[i]!=null?fmt(finView.nm[i],1)+"%":"—"}</td>
-                        <td>{fmt(finView.epsQ[i],2)}</td>
-                        <td>{fmt(finView.epsT[i],2)}</td>
-                        <td>{finView.roe[i]!=null?fmt(finView.roe[i],1)+"%":"—"}</td>
-                        <td>{fmt(r.bvps,1)}</td>
-                        <td>{fmt(finView.invD[i],0)}</td>
-                        <td>{fmt(finView.arD[i],0)}</td>
-                        <td>{fmt(finView.apD[i],0)}</td>
-                        <td>{fmt(finView.ccc[i],0)}</td>
-                        <td>{fmt(finView.oe[i],1)}</td>
-                        <td>{fmt(finView.borrowB[i],0)}</td>
-                        <td>{r.ocf!=null?fmt(r.ocf/1e5,0):"—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <React.Fragment>
+              <div className="card">
+                <div className="cardtitle">獲利與負債（季）</div>
+                <div className="tablewrap">
+                  <table className="pricetable small mono">
+                    <thead><tr>
+                      <th>季度</th><th>營收(億)</th><th>毛利率</th><th>營利率</th><th>純益率</th>
+                      <th>單季EPS</th><th>近4Q EPS</th><th>ROE</th>
+                      <th>短期借款(億)</th><th>長期借款(億)</th><th>借款總額(億)</th><th>稅後純益(億)</th><th>借款盈餘比</th>
+                    </tr></thead>
+                    <tbody>
+                      {finRows.map((r,i)=>({r,i})).reverse().map(({r,i})=>(
+                        <tr key={r.k}>
+                          <td>{finView.labels[i]}</td>
+                          <td>{r.rev_q!=null?fmt(r.rev_q/1e5,0):"—"}</td>
+                          <td>{finView.gm[i]!=null?fmt(finView.gm[i],1)+"%":"—"}</td>
+                          <td>{finView.om[i]!=null?fmt(finView.om[i],1)+"%":"—"}</td>
+                          <td>{finView.nm[i]!=null?fmt(finView.nm[i],1)+"%":"—"}</td>
+                          <td>{fmt(finView.epsQ[i],2)}</td>
+                          <td>{fmt(finView.epsT[i],2)}</td>
+                          <td>{finView.roe[i]!=null?fmt(finView.roe[i],1)+"%":"—"}</td>
+                          <td>{fmt(finView.stbB[i],0)}</td>
+                          <td>{fmt(finView.ltbB[i],0)}</td>
+                          <td>{fmt(finView.borrowB[i],0)}</td>
+                          <td>{fmt(finView.niB[i],0)}</td>
+                          <td>{(finView.borrowB[i]!=null&&finView.niB[i]>0)?fmt(finView.borrowB[i]/finView.niB[i]*100,1)+"%":"—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div className="note">業主盈餘為每股（元）近四季；借款、營收、現金流為億元；營業現金流為年初至當季累計。空白代表該季細項尚未回補或無此項目。</div>
-            </div>
+
+              <div className="card">
+                <div className="cardtitle">成本能力（季）</div>
+                <div className="tablewrap">
+                  <table className="pricetable small mono">
+                    <thead><tr>
+                      <th>季度</th><th>存貨(億)</th><th>應收(億)</th><th>應付(億)</th><th>流動資產(億)</th><th>負債(億)</th>
+                      <th>存貨天數</th><th>存貨佔流動資產</th><th>應收天數</th><th>應收佔流動資產</th>
+                      <th>應付天數</th><th>應付佔負債</th><th>現金週期</th><th>營運資金(億)</th><th>防禦期</th>
+                    </tr></thead>
+                    <tbody>
+                      {finRows.map((r,i)=>({r,i})).reverse().map(({r,i})=>(
+                        <tr key={r.k}>
+                          <td>{finView.labels[i]}</td>
+                          <td>{r.inv!=null?fmt(r.inv/1e5,0):"—"}</td>
+                          <td>{r.ar!=null?fmt(r.ar/1e5,0):"—"}</td>
+                          <td>{r.ap!=null?fmt(r.ap/1e5,0):"—"}</td>
+                          <td>{r.ca!=null?fmt(r.ca/1e5,0):"—"}</td>
+                          <td>{r.liab!=null?fmt(r.liab/1e5,0):"—"}</td>
+                          <td>{fmt(finView.invD[i],0)}</td>
+                          <td>{finView.invPct[i]!=null?fmt(finView.invPct[i],1)+"%":"—"}</td>
+                          <td>{fmt(finView.arD[i],0)}</td>
+                          <td>{finView.arPct[i]!=null?fmt(finView.arPct[i],1)+"%":"—"}</td>
+                          <td>{fmt(finView.apD[i],0)}</td>
+                          <td>{finView.apPct[i]!=null?fmt(finView.apPct[i],1)+"%":"—"}</td>
+                          <td>{fmt(finView.ccc[i],0)}</td>
+                          <td>{(r.ca!=null&&r.cl!=null)?fmt((r.ca-r.cl)/1e5,0):"—"}</td>
+                          <td>{fmt(finView.defensive[i],0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="cardtitle">原始資料（季）</div>
+                <div className="tablewrap">
+                  <table className="pricetable small mono">
+                    <thead><tr>
+                      <th>季度</th><th>固定資產(億)</th><th>長期投資(億)</th><th>現金(億)</th><th>股東權益(億)</th><th>每股淨值</th>
+                      <th>折舊(億·近4Q)</th><th>資本支出(億·近4Q)</th><th>營業現金流(億·近4Q)</th>
+                      <th>真實盈餘(每股)</th><th>折舊現金流量(每股)</th>
+                    </tr></thead>
+                    <tbody>
+                      {finRows.map((r,i)=>({r,i})).reverse().map(({r,i})=>(
+                        <tr key={r.k}>
+                          <td>{finView.labels[i]}</td>
+                          <td>{r.ppe!=null?fmt(r.ppe/1e5,0):"—"}</td>
+                          <td>{r.lti!=null?fmt(r.lti/1e5,0):"—"}</td>
+                          <td>{r.cash_bs!=null?fmt(r.cash_bs/1e5,0):"—"}</td>
+                          <td>{r.eq!=null?fmt(r.eq/1e5,0):"—"}</td>
+                          <td>{fmt(r.bvps,1)}</td>
+                          <td>{fmt(finView.depB[i],0)}</td>
+                          <td>{fmt(finView.capexB[i],0)}</td>
+                          <td>{fmt(finView.ocfB[i],0)}</td>
+                          <td>{fmt(finView.oe[i],1)}</td>
+                          <td>{fmt(finView.depCF[i],1)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {divRows&&(
+                <div className="card">
+                  <div className="cardtitle">股利發放紀錄</div>
+                  <div className="tablewrap">
+                    <table className="pricetable small mono">
+                      <thead><tr><th>所屬期間</th><th>現金股利（元）</th><th>股票股利（元）</th></tr></thead>
+                      <tbody>
+                        {[...divRows].reverse().map((d,i)=>(
+                          <tr key={i}>
+                            <td>{d.p}</td>
+                            <td>{d.cash?fmt(d.cash,2):"—"}</td>
+                            <td>{d.stock?fmt(d.stock,2):"—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              <div className="note">金額為億元；「近4Q」為最近四個單季合計；業主盈餘與折舊現金流量為每股（元）。空白代表該季細項尚未回補或無此項目。</div>
+            </React.Fragment>
           ):(
             <div className="card" style={{textAlign:"center",padding:"32px 16px",color:"var(--dim)"}}>
               此檔尚無財報資料檔，逐季明細將在 pipeline 回補後出現。

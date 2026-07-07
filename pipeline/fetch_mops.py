@@ -201,6 +201,62 @@ DETAIL_ITEMS = [
 EXCLUDE_ROW = re.compile(r"合計|總計|週轉|days|Total")
 
 
+def fetch_dividends(co_id):
+    """抓取單一公司全部股利分派歷史（一個請求）"""
+    url = f"{BASE}/mops/web/ajax_t05st09_new"
+    payload = {
+        "encodeURIComponent": "1", "step": "1", "firstin": "1", "off": "1",
+        "queryName": "co_id", "inpuType": "co_id", "TYPEK": "all",
+        "isnew": "false", "co_id": str(co_id),
+        "date1": "99", "date2": str(date.today().year - 1911),
+        "qryType": "2",
+    }
+    r = SESSION.post(url, data=payload, timeout=45)
+    r.raise_for_status()
+    r.encoding = r.apparent_encoding or "utf8"
+    try:
+        tables = pd.read_html(io.StringIO(r.text))
+    except ValueError:
+        return None
+    out = []
+    for df in tables:
+        cols = [str(c) for c in df.columns]
+        flat = " ".join(cols)
+        if "股利" not in flat:
+            continue
+        period_c = None
+        cash_c = None
+        stock_c = None
+        for ci, c in enumerate(cols):
+            if period_c is None and ("期間" in c or "股利所屬" in c or "年度" in c):
+                period_c = ci
+            if cash_c is None and "現金股利" in c and ("合計" in c or "盈餘" in c or "元/股" in c):
+                cash_c = ci
+            if stock_c is None and "股票股利" in c and ("合計" in c or "盈餘" in c or "元/股" in c):
+                stock_c = ci
+        if period_c is None or cash_c is None:
+            continue
+        for _, row in df.iterrows():
+            period = str(row.iloc[period_c]).strip()
+            if not period or period == "nan" or "年" not in period and "季" not in period and not re.search(r"\d", period):
+                continue
+            cash = to_num(row.iloc[cash_c])
+            stk = to_num(row.iloc[stock_c]) if stock_c is not None else None
+            if cash is None and stk is None:
+                continue
+            out.append({"p": period, "cash": cash or 0, "stock": stk or 0})
+    if not out:
+        return None
+    seen = set()
+    uniq = []
+    for d in out:
+        if d["p"] in seen:
+            continue
+        seen.add(d["p"])
+        uniq.append(d)
+    return uniq
+
+
 def fetch_detail(co_id, year, season):
     url = (f"{BASE}/server-java/t164sb01?step=1&CO_ID={co_id}"
            f"&SYEAR={year}&SSEASON={season}&REPORT_ID=C")
@@ -315,6 +371,23 @@ def run_detail(codes, quarters, limit):
     done = load_progress()
     count = 0
     for code in codes:
+        if (code, 0, 0) not in done:
+            if count >= limit:
+                save_progress(done)
+                print(f"[detail] 已達本次上限 {limit}，進度已存檔，下次自動續傳")
+                return count
+            try:
+                divs = fetch_dividends(code)
+                done.add((code, 0, 0))
+                count += 1
+                if divs:
+                    obj = load_stock(code)
+                    obj["div"] = divs
+                    save_stock(obj)
+                    print(f"[div] {code} {len(divs)} 筆股利紀錄")
+            except Exception as e:
+                print(f"[div] {code} 失敗：{e}（下次重試）")
+            polite_sleep()
         for (y, s) in quarters:
             key = [code, y, s]
             if tuple(key) in done:
@@ -360,7 +433,13 @@ def main():
     ap.add_argument("--limit", type=int, default=1200)
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--probe", nargs=3, metavar=("CODE", "YEAR", "SEASON"))
+    ap.add_argument("--probe-div", type=str, metavar="CODE")
     args = ap.parse_args()
+
+    if args.probe_div:
+        d = fetch_dividends(args.probe_div)
+        print(json.dumps(d, ensure_ascii=False, indent=2))
+        return
 
     if args.probe:
         code, y, s = args.probe[0], int(args.probe[1]), int(args.probe[2])
