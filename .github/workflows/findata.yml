@@ -35,7 +35,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install requests pandas lxml
+        run: pip install requests pandas lxml html5lib beautifulsoup4
 
       - name: Decide mode
         id: mode
