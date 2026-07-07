@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>台股估價河流圖</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+<style>
+:root{
+  --bg:#0d1117;--panel:#131a24;--panel2:#1a2332;--border:#2a3648;
+  --text:#e6edf3;--dim:#8b98a9;--hi:#ff9142;--lo:#53c8f5;--avg:#e6edf3;
+  --gold:#ffd54a;--green:#4ade80;--red:#f87171;--accent:#3b82f6;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif;min-height:100vh}
+#root{max-width:1200px;margin:0 auto;padding:16px}
+.mono{font-variant-numeric:tabular-nums}
+h1{font-size:20px;letter-spacing:2px}
+.topbar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:8px 0 16px}
+.searchwrap{position:relative;flex:1;min-width:240px;max-width:420px}
+.searchbox{display:flex;gap:8px}
+input[type=text],input[type=number]{background:var(--panel2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 14px;font-size:15px;width:100%;outline:none}
+input:focus{border-color:var(--accent)}
+button{background:var(--accent);border:none;border-radius:8px;color:#fff;padding:10px 18px;font-size:15px;cursor:pointer;white-space:nowrap}
+button:hover{filter:brightness(1.15)}
+button:disabled{opacity:.5;cursor:default}
+.sugg{position:absolute;top:100%;left:0;right:0;background:var(--panel2);border:1px solid var(--border);border-radius:8px;margin-top:4px;z-index:20;overflow:hidden}
+.sugg div{padding:8px 14px;cursor:pointer;display:flex;justify-content:space-between}
+.sugg div:hover{background:var(--accent)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+.cardtitle{font-size:14px;color:var(--dim);letter-spacing:1px;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.cardtitle::before{content:"";width:4px;height:14px;background:var(--accent);border-radius:2px;display:inline-block}
+.infogrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.infoitem{background:var(--panel2);border-radius:8px;padding:10px 12px}
+.infoitem .k{font-size:12px;color:var(--dim)}
+.infoitem .v{font-size:17px;margin-top:2px;font-weight:600}
+.stockhead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+.stockhead .name{font-size:26px;font-weight:700}
+.stockhead .code{font-size:18px;color:var(--dim)}
+.stockhead .price{font-size:26px;font-weight:700;color:var(--gold)}
+.pricetable{width:100%;border-collapse:collapse;font-size:14px}
+.pricetable th,.pricetable td{border:1px solid var(--border);padding:8px 10px;text-align:center}
+.pricetable th{background:var(--panel2);color:var(--dim);font-weight:400}
+.pricetable td:first-child{background:var(--panel2);color:var(--text);text-align:left}
+.hiv{color:var(--hi)}.lov{color:var(--lo)}.avgv{color:var(--gold)}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px}
+@media(max-width:520px){.charts{grid-template-columns:1fr}}
+.chartpanel{background:#000;border:1px solid var(--border);border-radius:12px;padding:8px 8px 4px}
+.charthead{text-align:center;font-size:15px;font-weight:700;padding:6px 0;background:linear-gradient(90deg,transparent,#1a56db,transparent);border-radius:6px;margin-bottom:4px}
+.legend{display:flex;justify-content:center;gap:16px;font-size:12px;color:var(--dim);padding:2px 0 6px}
+.legend span::before{content:"—";margin-right:4px;font-weight:700}
+.lg-hi::before{color:var(--hi)}.lg-lo::before{color:var(--lo)}.lg-avg::before{color:var(--avg)}.lg-now::before{content:"●";color:var(--gold)}
+.verdict{display:inline-block;padding:3px 12px;border-radius:999px;font-size:13px;font-weight:700}
+.v0{background:#0d3a24;color:#4ade80}.v1{background:#123a33;color:#34d399}.v2{background:#3a3312;color:#ffd54a}.v3{background:#3a2412;color:#fb923c}.v4{background:#3a1212;color:#f87171}
+.judge{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.judge input{width:130px}
+.posbar{position:relative;height:14px;border-radius:7px;background:linear-gradient(90deg,#16a34a,#eab308,#dc2626);flex:1;min-width:200px}
+.posmark{position:absolute;top:-4px;width:3px;height:22px;background:#fff;border-radius:2px;box-shadow:0 0 6px #fff}
+.progress{padding:24px;text-align:center;color:var(--dim)}
+.progressbar{height:6px;background:var(--panel2);border-radius:3px;margin:12px auto;max-width:400px;overflow:hidden}
+.progressbar div{height:100%;background:var(--accent);transition:width .3s}
+.errbox{background:#3a1212;border:1px solid #7f1d1d;color:#fca5a5;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:14px;line-height:1.6}
+.note{color:var(--dim);font-size:12px;line-height:1.7;margin-top:8px}
+.judgerow{display:grid;grid-template-columns:110px 1fr 120px;gap:10px;align-items:center;margin-bottom:8px;font-size:14px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="env,react">
+const {useState,useEffect,useRef,useMemo,useCallback} = React;
+
+/* ============ 常數 ============ */
+const YEARS_BACK = 9;
+const BAND_YEARS = 3;
+const INDUSTRY = {"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活"};
+
+/* ============ 工具 ============ */
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const num = v => { if(v==null) return null; const n=parseFloat(String(v).replace(/,/g,"")); return isFinite(n)?n:null; };
+const fmt = (v,d=1) => v==null||!isFinite(v)?"—":v.toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
+const todayKey = () => new Date().toISOString().slice(0,10);
+
+const cacheGet = k => { try{ const s=localStorage.getItem(k); return s?JSON.parse(s):null; }catch(e){ return null; } };
+const cacheSet = (k,v) => { try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){ try{ Object.keys(localStorage).filter(x=>x.startsWith("twri-y-")).slice(0,50).forEach(x=>localStorage.removeItem(x)); localStorage.setItem(k,JSON.stringify(v)); }catch(e2){} } };
+
+async function fetchJSON(url){
+  const res = await fetch(url,{cache:"no-store"});
+  if(!res.ok) throw new Error("HTTP "+res.status);
+  return res.json();
+}
+
+/* ============ 資料層：全市場快照（每日一次） ============ */
+async function loadSnapshots(){
+  const key = "twri-snap-"+todayKey();
+  const c = cacheGet(key);
+  if(c) return c;
+  const [info,bwi,avg] = await Promise.all([
+    fetchJSON("https://openapi.twse.com.tw/v1/opendata/t187ap03_L"),
+    fetchJSON("https://openapi.twse.com.tw/v1/exchangeReport/BWIBBU_ALL"),
+    fetchJSON("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_AVG_ALL"),
+  ]);
+  const companies = info.map(r=>({
+    code:r["公司代號"], name:r["公司簡稱"]||r["公司名稱"], full:r["公司名稱"],
+    ind:INDUSTRY[r["產業別"]]||r["產業別"]||"—",
+    chair:r["董事長"]||"—",
+    capital:num(r["實收資本額"]),
+    est:r["成立日期"], ipo:r["上市日期"],
+  }));
+  const quotes = {};
+  bwi.forEach(r=>{ quotes[r.Code]={pe:num(r.PEratio),pb:num(r.PBratio),yield:num(r.DividendYield)}; });
+  avg.forEach(r=>{ const q=quotes[r.Code]||(quotes[r.Code]={}); q.close=num(r.ClosingPrice); q.mavg=num(r.MonthlyAveragePrice); });
+  const snap = {companies,quotes};
+  Object.keys(localStorage).filter(k=>k.startsWith("twri-snap-")&&k!==key).forEach(k=>localStorage.removeItem(k));
+  cacheSet(key,snap);
+  return snap;
+}
+
+/* ============ 資料層：單一股票歷史年度資料 ============ */
+function pickCol(fields,keys){
+  for(const kw of keys){ const i=fields.findIndex(f=>String(f).includes(kw)); if(i>=0) return i; }
+  return -1;
+}
+
+async function fetchYearPrice(code,year){
+  const j = await fetchJSON(`https://www.twse.com.tw/rwd/zh/afterTrading/FMSRFK?date=${year}0101&stockNo=${code}&response=json`);
+  if(j.stat!=="OK"||!j.data||!j.data.length) return null;
+  const f=j.fields||[];
+  const iMon=pickCol(f,["月份","月"]), iHi=pickCol(f,["最高價"]), iLo=pickCol(f,["最低價"]), iAvg=pickCol(f,["平均"]);
+  const months=j.data.map(row=>({
+    mon:num(row[iMon]), hi:num(row[iHi]), lo:num(row[iLo]), avg:num(row[iAvg]),
+  })).filter(m=>m.hi!=null&&m.lo!=null);
+  if(!months.length) return null;
+  return {
+    hi:Math.max(...months.map(m=>m.hi)),
+    lo:Math.min(...months.map(m=>m.lo)),
+    avg:months.reduce((s,m)=>s+(m.avg??((m.hi+m.lo)/2)),0)/months.length,
+    months,
+  };
+}
+
+async function fetchMonthRatio(code,year,month){
+  const mm=String(month).padStart(2,"0");
+  const j = await fetchJSON(`https://www.twse.com.tw/rwd/zh/afterTrading/BWIBBU?date=${year}${mm}01&stockNo=${code}&response=json`);
+  if(j.stat!=="OK"||!j.data||!j.data.length) return null;
+  const f=j.fields||[];
+  const iPE=pickCol(f,["本益比"]), iPB=pickCol(f,["股價淨值比"]), iY=pickCol(f,["殖利率"]);
+  const rows=j.data.map(r=>({pe:num(r[iPE]),pb:num(r[iPB]),y:num(r[iY])}));
+  const mean=arr=>{const a=arr.filter(v=>v!=null&&v>0);return a.length?a.reduce((s,v)=>s+v,0)/a.length:null;};
+  return {pe:mean(rows.map(r=>r.pe)),pb:mean(rows.map(r=>r.pb)),yield:mean(rows.map(r=>r.y))};
+}
+
+async function loadYearData(code,year,isCurrent,quote){
+  const ck=`twri-y-${code}-${year}`;
+  if(!isCurrent){ const c=cacheGet(ck); if(c) return c; }
+  else { const c=cacheGet(ck); if(c&&c._d===todayKey()) return c; }
+
+  const price = await fetchYearPrice(code,year);
+  if(!price) return null;
+  await sleep(350);
+
+  let ratio=null, refPrice=null;
+  if(isCurrent && quote && quote.pe!=null){
+    ratio={pe:quote.pe,pb:quote.pb,yield:quote.yield};
+    refPrice=quote.close;
+  } else {
+    const lastMon = isCurrent ? price.months[price.months.length-1].mon : 12;
+    for(let m=lastMon;m>=1&&!ratio;m--){
+      ratio = await fetchMonthRatio(code,year,m);
+      if(ratio){
+        const mrow=price.months.find(x=>x.mon===m);
+        refPrice = mrow ? (mrow.avg??(mrow.hi+mrow.lo)/2) : price.avg;
+      }
+      await sleep(350);
+    }
+  }
+
+  let eps=null,bvps=null,dps=null;
+  if(ratio&&refPrice){
+    if(ratio.pe) eps=refPrice/ratio.pe;
+    if(ratio.pb) bvps=refPrice/ratio.pb;
+    if(ratio.yield) dps=refPrice*ratio.yield/100;
+  }
+  const d={
+    year, hi:price.hi, lo:price.lo, avg:price.avg,
+    eps,bvps,dps,
+    peHi: eps?price.hi/eps:null, peLo: eps?price.lo/eps:null, peAvg: eps?price.avg/eps:null,
+    pbHi: bvps?price.hi/bvps:null, pbLo: bvps?price.lo/bvps:null, pbAvg: bvps?price.avg/bvps:null,
+    yAtHi: dps?dps/price.hi*100:null, yAtLo: dps?dps/price.lo*100:null, yAtAvg: dps?dps/price.avg*100:null,
+    _d:todayKey(),
+  };
+  cacheSet(ck,d);
+  return d;
+}
+
+/* ============ 河流圖 (SVG) ============ */
+function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",invert=false,hiLabel,loLabel}){
+  const W=460,H=260,PAD={l:14,r:44,t:26,b:26};
+  const pts=years.map((y,i)=>({y,hi:series.hi[i],lo:series.lo[i],avg:series.avg[i]}));
+  const valid=pts.filter(p=>p.hi!=null);
+  if(!valid.length) return (
+    <div className="chartpanel"><div className="charthead">{title}</div>
+    <div style={{color:"#556",textAlign:"center",padding:"60px 0"}}>此期間無足夠資料</div></div>
+  );
+  let vmax=Math.max(...valid.map(p=>p.hi)), vmin=Math.min(...valid.map(p=>p.lo));
+  if(nowValue!=null){ vmax=Math.max(vmax,nowValue); vmin=Math.min(vmin,nowValue); }
+  const span=(vmax-vmin)||1; vmax+=span*0.1; vmin-=span*0.1;
+  const X=i=>PAD.l+ i*(W-PAD.l-PAD.r)/Math.max(years.length-1,1);
+  const Y=v=>{const t=(v-vmin)/(vmax-vmin);return PAD.t+(invert?t:1-t)*(H-PAD.t-PAD.b);};
+  const path=key=>{
+    let s="",started=false;
+    pts.forEach((p,i)=>{ if(p[key]==null){started=false;return;} s+=(started?"L":"M")+X(i).toFixed(1)+","+Y(p[key]).toFixed(1); started=true; });
+    return s;
+  };
+  const bandPath=(()=>{
+    const seg=pts.map((p,i)=>({i,hi:p.hi,lo:p.lo})).filter(p=>p.hi!=null);
+    if(seg.length<2) return "";
+    const top=seg.map((p,k)=>(k?"L":"M")+X(p.i).toFixed(1)+","+Y(p.hi).toFixed(1)).join("");
+    const bot=[...seg].reverse().map(p=>"L"+X(p.i).toFixed(1)+","+Y(p.lo).toFixed(1)).join("");
+    return top+bot+"Z";
+  })();
+  const lastIdx=pts.map((p,i)=>p.hi!=null?i:-1).filter(i=>i>=0).pop();
+  return (
+    <div className="chartpanel">
+      <div className="charthead">{title}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
+        <path d={bandPath} fill="rgba(83,200,245,0.07)"/>
+        <path d={path("hi")} fill="none" stroke="var(--hi)" strokeWidth="2.2"/>
+        <path d={path("avg")} fill="none" stroke="var(--avg)" strokeWidth="1.2" opacity="0.9"/>
+        <path d={path("lo")} fill="none" stroke="var(--lo)" strokeWidth="2.2"/>
+        {pts.map((p,i)=>p.hi==null?null:(
+          <g key={i} className="mono">
+            <text x={X(i)} y={Y(p.hi)-7} fill="var(--hi)" fontSize="10.5" textAnchor="middle" fontWeight="700">{fmt(p.hi,decimals)}</text>
+            <text x={X(i)} y={Y(p.lo)+15} fill="var(--lo)" fontSize="10.5" textAnchor="middle" fontWeight="700">{fmt(p.lo,decimals)}</text>
+          </g>
+        ))}
+        {nowValue!=null&&lastIdx!=null&&(
+          <g>
+            <line x1={PAD.l} x2={W-PAD.r+20} y1={Y(nowValue)} y2={Y(nowValue)} stroke="var(--gold)" strokeWidth="1" strokeDasharray="5 4" opacity="0.85"/>
+            <circle cx={X(lastIdx)} cy={Y(nowValue)} r="4.5" fill="var(--gold)"/>
+            <text x={W-PAD.r+22} y={Y(nowValue)+4} fill="var(--gold)" fontSize="11" fontWeight="700" textAnchor="start" className="mono">{fmt(nowValue,decimals)}</text>
+          </g>
+        )}
+        {pts.map((p,i)=>(
+          <text key={"x"+i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="11" textAnchor="middle" className="mono">{p.y-1911}</text>
+        ))}
+      </svg>
+      <div className="legend">
+        <span className="lg-hi">{hiLabel||("年最高"+unit)}</span>
+        <span className="lg-avg">年平均</span>
+        <span className="lg-lo">{loLabel||("年最低"+unit)}</span>
+        {nowValue!=null&&<span className="lg-now">{nowLabel}</span>}
+      </div>
+    </div>
+  );
+}
+
+/* ============ 位置判斷 ============ */
+function positionOf(v,lo,hi,invert){
+  if(v==null||lo==null||hi==null||hi<=lo) return null;
+  let p=(v-lo)/(hi-lo);
+  if(invert) p=1-p;
+  return Math.max(0,Math.min(1,p));
+}
+function verdictOf(p){
+  if(p==null) return null;
+  if(p<0.2) return {cls:"v0",txt:"低檔"};
+  if(p<0.4) return {cls:"v1",txt:"中低檔"};
+  if(p<0.6) return {cls:"v2",txt:"中間值"};
+  if(p<0.8) return {cls:"v3",txt:"中高檔"};
+  return {cls:"v4",txt:"高檔"};
+}
+
+function JudgeRow({label,pos,extra}){
+  const v=verdictOf(pos);
+  return (
+    <div className="judgerow">
+      <div>{label}<div style={{fontSize:11,color:"var(--dim)"}}>{extra}</div></div>
+      <div className="posbar">{pos!=null&&<div className="posmark" style={{left:`calc(${(pos*100).toFixed(1)}% - 1px)`}}/>}</div>
+      <div style={{textAlign:"right"}}>{v?<span className={"verdict "+v.cls}>{v.txt}（{Math.round(pos*100)}%）</span>:<span style={{color:"var(--dim)"}}>—</span>}</div>
+    </div>
+  );
+}
+
+/* ============ 主程式 ============ */
+function App(){
+  const [snap,setSnap]=useState(null);
+  const [snapErr,setSnapErr]=useState(null);
+  const [query,setQuery]=useState("");
+  const [sugg,setSugg]=useState([]);
+  const [stock,setStock]=useState(null);
+  const [hist,setHist]=useState(null);
+  const [loading,setLoading]=useState(false);
+  const [prog,setProg]=useState({done:0,total:1,msg:""});
+  const [err,setErr]=useState(null);
+  const [judgePrice,setJudgePrice]=useState("");
+  const abortRef=useRef(0);
+
+  useEffect(()=>{ loadSnapshots().then(setSnap).catch(e=>setSnapErr(String(e))); },[]);
+
+  const onQuery=v=>{
+    setQuery(v);
+    if(!snap||!v.trim()){setSugg([]);return;}
+    const q=v.trim();
+    const list=snap.companies.filter(c=>c.code.startsWith(q)||c.name.includes(q)||c.full.includes(q)).slice(0,8);
+    setSugg(list);
+  };
+
+  const pick=useCallback(async c=>{
+    setSugg([]); setQuery(c.code+" "+c.name); setErr(null); setHist(null);
+    const quote=snap.quotes[c.code]||{};
+    const s={...c,quote};
+    setStock(s);
+    setJudgePrice(quote.close!=null?String(quote.close):"");
+    setLoading(true);
+    const myRun=++abortRef.current;
+    const nowY=new Date().getFullYear();
+    const years=[]; for(let y=nowY-YEARS_BACK+1;y<=nowY;y++) years.push(y);
+    const out=[];
+    try{
+      for(let i=0;i<years.length;i++){
+        if(abortRef.current!==myRun) return;
+        setProg({done:i,total:years.length,msg:`讀取 ${years[i]-1911} 年資料…`});
+        const d=await loadYearData(c.code,years[i],years[i]===nowY,quote);
+        out.push(d);
+        await sleep(150);
+      }
+      if(abortRef.current!==myRun) return;
+      setHist({years,data:out});
+    }catch(e){
+      setErr("歷史資料讀取失敗："+e.message+"。可能是 TWSE 流量限制，請稍候幾秒再查一次（已讀取的年度會快取，不會重抓）。");
+      if(out.length) setHist({years:years.slice(0,out.length),data:out});
+    }finally{
+      if(abortRef.current===myRun) setLoading(false);
+    }
+  },[snap]);
+
+  const onSearch=()=>{
+    if(!snap) return;
+    const q=query.trim().split(/\s+/)[0];
+    if(!q) return;
+    const c=snap.companies.find(x=>x.code===q)||snap.companies.find(x=>x.name===q||x.full===q)||sugg[0];
+    if(c) pick(c);
+    else setErr(`找不到「${q}」。目前僅支援上市（TWSE）股票，上櫃股票尚未支援。`);
+  };
+
+  const model=useMemo(()=>{
+    if(!hist||!stock) return null;
+    const rows=hist.data.map((d,i)=>d||{year:hist.years[i]});
+    const q=stock.quote;
+    const epsNow = q.pe&&q.close ? q.close/q.pe : null;
+    const bvpsNow = q.pb&&q.close ? q.close/q.pb : null;
+    const dpsNow = q.yield!=null&&q.close ? q.close*q.yield/100 : null;
+    const last=k=>rows.filter(r=>r[k]!=null).slice(-BAND_YEARS).map(r=>r[k]);
+    const mm=a=>a.length?{max:Math.max(...a),min:Math.min(...a),avg:a.reduce((s,v)=>s+v,0)/a.length}:null;
+    const bandRow=(hiArr,loArr,mult)=>{
+      const h=mm(hiArr),l=mm(loArr);
+      if(!h||!l||mult==null) return null;
+      return {hiUp:h.max*mult,hiDn:h.min*mult,watch:h.avg*mult,loUp:l.max*mult,loDn:l.min*mult};
+    };
+    const priceBand=(()=>{const h=mm(last("hi")),l=mm(last("lo"));return h&&l?{hiUp:h.max,hiDn:h.min,watch:h.avg,loUp:l.max,loDn:l.min}:null;})();
+    const peBand=bandRow(last("peHi"),last("peLo"),epsNow);
+    const pbBand=bandRow(last("pbHi"),last("pbLo"),bvpsNow);
+    const yBand=(()=>{
+      const yl=mm(last("yAtHi")),yh=mm(last("yAtLo"));
+      if(!yl||!yh||!dpsNow) return null;
+      return {hiUp:dpsNow/yl.min*100,hiDn:dpsNow/yl.max*100,watch:dpsNow/yl.avg*100,loUp:dpsNow/yh.min*100,loDn:dpsNow/yh.max*100};
+    })();
+    return {rows,epsNow,bvpsNow,dpsNow,priceBand,peBand,pbBand,yBand};
+  },[hist,stock]);
+
+  const jp=num(judgePrice);
+  const judge=useMemo(()=>{
+    if(!model||jp==null) return null;
+    const allHi=model.rows.map(r=>r.hi).filter(v=>v!=null);
+    const allLo=model.rows.map(r=>r.lo).filter(v=>v!=null);
+    const allPeHi=model.rows.map(r=>r.peHi).filter(v=>v!=null);
+    const allPeLo=model.rows.map(r=>r.peLo).filter(v=>v!=null);
+    const allPbHi=model.rows.map(r=>r.pbHi).filter(v=>v!=null);
+    const allPbLo=model.rows.map(r=>r.pbLo).filter(v=>v!=null);
+    const allYHi=model.rows.map(r=>r.yAtLo).filter(v=>v!=null);
+    const allYLo=model.rows.map(r=>r.yAtHi).filter(v=>v!=null);
+    const pe=model.epsNow?jp/model.epsNow:null;
+    const pb=model.bvpsNow?jp/model.bvpsNow:null;
+    const y=model.dpsNow?model.dpsNow/jp*100:null;
+    return {
+      pe,pb,y,
+      posPrice:allHi.length?positionOf(jp,Math.min(...allLo),Math.max(...allHi)):null,
+      posPE:allPeHi.length?positionOf(pe,Math.min(...allPeLo),Math.max(...allPeHi)):null,
+      posPB:allPbHi.length?positionOf(pb,Math.min(...allPbLo),Math.max(...allPbHi)):null,
+      posY:allYHi.length?positionOf(y,Math.min(...allYLo),Math.max(...allYHi),true):null,
+    };
+  },[model,jp]);
+
+  const yearsAgo=d=>{ if(!d||d.length<4) return "—"; const y=+d.slice(0,4),m=+d.slice(4,6)||1; return fmt((Date.now()-new Date(y,m-1).getTime())/3.15576e10,1); };
+
+  const bandTable=model&&(
+    <table className="pricetable mono">
+      <thead><tr><th style={{width:130}}></th><th>高價上限</th><th>高價低限</th><th>關注價</th><th>低價上限</th><th>低價低限</th></tr></thead>
+      <tbody>
+        {[["3年歷史高低價",model.priceBand],["本益比價",model.peBand],["股價淨值比價",model.pbBand],["殖利率價",model.yBand]].map(([lab,b])=>(
+          <tr key={lab}>
+            <td>{lab}</td>
+            <td className="hiv">{b?fmt(b.hiUp):"—"}</td>
+            <td className="hiv">{b?fmt(b.hiDn):"—"}</td>
+            <td className="avgv">{b?fmt(b.watch):"—"}</td>
+            <td className="lov">{b?fmt(b.loUp):"—"}</td>
+            <td className="lov">{b?fmt(b.loDn):"—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
+  return (
+    <div>
+      <div className="topbar">
+        <h1>台股估價河流圖</h1>
+        <div className="searchwrap">
+          <div className="searchbox">
+            <input type="text" placeholder="輸入股號或股名（例：2330 或 台積電）" value={query}
+              onChange={e=>onQuery(e.target.value)}
+              onKeyDown={e=>{if(e.key==="Enter")onSearch();}}/>
+            <button onClick={onSearch} disabled={!snap}>{snap?"查詢":"載入中…"}</button>
+          </div>
+          {sugg.length>0&&(
+            <div className="sugg">
+              {sugg.map(c=><div key={c.code} onMouseDown={()=>pick(c)}><span>{c.name}</span><span className="mono" style={{color:"var(--dim)"}}>{c.code}</span></div>)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {snapErr&&<div className="errbox">無法載入 TWSE 全市場資料：{snapErr}<br/>請確認網路連線，或稍後重新整理頁面。</div>}
+      {err&&<div className="errbox">{err}</div>}
+
+      {stock&&(
+        <div className="card">
+          <div className="stockhead">
+            <span className="name">{stock.name}</span>
+            <span className="code mono">{stock.code}</span>
+            <span className="price mono">{fmt(stock.quote.close,stock.quote.close>=500?0:2)}</span>
+            <span style={{color:"var(--dim)",fontSize:13}}>收盤價</span>
+          </div>
+          <div className="infogrid">
+            <div className="infoitem"><div className="k">產業別</div><div className="v">{stock.ind}</div></div>
+            <div className="infoitem"><div className="k">資本額（億）</div><div className="v mono">{stock.capital!=null?fmt(stock.capital/1e8,1):"—"}</div></div>
+            <div className="infoitem"><div className="k">成立年數</div><div className="v mono">{yearsAgo(stock.est)}</div></div>
+            <div className="infoitem"><div className="k">掛牌年數</div><div className="v mono">{yearsAgo(stock.ipo)}</div></div>
+            <div className="infoitem"><div className="k">本益比</div><div className="v mono">{fmt(stock.quote.pe,2)}</div></div>
+            <div className="infoitem"><div className="k">股價淨值比</div><div className="v mono">{fmt(stock.quote.pb,2)}</div></div>
+            <div className="infoitem"><div className="k">殖利率</div><div className="v mono">{stock.quote.yield!=null?fmt(stock.quote.yield,2)+"%":"—"}</div></div>
+            <div className="infoitem"><div className="k">董事長</div><div className="v">{stock.chair}</div></div>
+          </div>
+        </div>
+      )}
+
+      {loading&&(
+        <div className="card progress">
+          <div>{prog.msg}</div>
+          <div className="progressbar"><div style={{width:(prog.done/prog.total*100)+"%"}}/></div>
+          <div style={{fontSize:12}}>首次查詢約需 5–10 秒（TWSE 有流量限制），之後會使用本機快取秒開</div>
+        </div>
+      )}
+
+      {model&&!loading&&(
+        <React.Fragment>
+          <div className="card">
+            <div className="cardtitle">價格位階判斷（近 {YEARS_BACK} 年區間）</div>
+            <div className="judge">
+              <span style={{color:"var(--dim)",fontSize:14}}>輸入股價</span>
+              <input type="number" step="0.5" value={judgePrice} onChange={e=>setJudgePrice(e.target.value)}/>
+              {stock.quote.close!=null&&<button style={{padding:"8px 12px",fontSize:13,background:"var(--panel2)",border:"1px solid var(--border)"}} onClick={()=>setJudgePrice(String(stock.quote.close))}>回到收盤價</button>}
+            </div>
+            {judge&&(
+              <React.Fragment>
+                <JudgeRow label="股價位階" pos={judge.posPrice} extra={fmt(jp,1)+" 元"}/>
+                <JudgeRow label="本益比位階" pos={judge.posPE} extra={judge.pe!=null?fmt(judge.pe,2)+" 倍":"—"}/>
+                <JudgeRow label="淨值比位階" pos={judge.posPB} extra={judge.pb!=null?fmt(judge.pb,2)+" 倍":"—"}/>
+                <JudgeRow label="殖利率位階" pos={judge.posY} extra={judge.y!=null?fmt(judge.y,2)+" %（低殖利率＝貴）":"—"}/>
+              </React.Fragment>
+            )}
+            <div style={{marginTop:16}}>{bandTable}</div>
+            <div className="note">
+              高價上限／低限＝近 {BAND_YEARS} 年「年度最高值」的最大／最小值換算；關注價＝近 {BAND_YEARS} 年年度最高值的平均；低價上限／低限＝近 {BAND_YEARS} 年「年度最低值」的最大／最小值換算。
+              換算基準：目前 EPS {fmt(model.epsNow,2)}、每股淨值 {fmt(model.bvpsNow,1)}、每股股息 {fmt(model.dpsNow,2)}（由當日收盤價與本益比／淨值比／殖利率回推）。
+            </div>
+          </div>
+
+          <div className="charts">
+            <RiverChart title="股價河流圖" years={hist.years}
+              series={{hi:model.rows.map(r=>r.hi??null),lo:model.rows.map(r=>r.lo??null),avg:model.rows.map(r=>r.avg??null)}}
+              nowValue={jp} nowLabel="輸入股價" decimals={jp!=null&&jp>=500?0:1}/>
+            <RiverChart title="本益比河流圖" years={hist.years}
+              series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
+              nowValue={judge?judge.pe:null} nowLabel="目前本益比" decimals={1}/>
+            <RiverChart title="股價淨值比河流圖" years={hist.years}
+              series={{hi:model.rows.map(r=>r.pbHi??null),lo:model.rows.map(r=>r.pbLo??null),avg:model.rows.map(r=>r.pbAvg??null)}}
+              nowValue={judge?judge.pb:null} nowLabel="目前淨值比" decimals={2}/>
+            <RiverChart title="殖利率河流圖" years={hist.years}
+              series={{hi:model.rows.map(r=>r.yAtHi??null),lo:model.rows.map(r=>r.yAtLo??null),avg:model.rows.map(r=>r.yAtAvg??null)}}
+              nowValue={judge?judge.y:null} nowLabel="目前殖利率" decimals={1} invert={true}
+              hiLabel="高檔殖利率（低%）" loLabel="低檔殖利率（高%）"/>
+          </div>
+          <div className="note" style={{marginTop:12}}>
+            資料來源：臺灣證券交易所（openapi.twse.com.tw、www.twse.com.tw）。歷年 EPS／淨值／股息係以各年 12 月（當年度取最近月份）之月均本益比、淨值比、殖利率與月均價回推，與財報實際數字可能有小幅差異。本工具僅供個人研究參考，非投資建議。
+          </div>
+        </React.Fragment>
+      )}
+
+      {!stock&&!snapErr&&(
+        <div className="card" style={{textAlign:"center",padding:"48px 16px",color:"var(--dim)"}}>
+          輸入股號或股名開始查詢<br/>
+          <span style={{fontSize:12}}>目前支援上市（TWSE）股票 · 首次查詢會抓取近 {YEARS_BACK} 年歷史資料並快取於瀏覽器</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
