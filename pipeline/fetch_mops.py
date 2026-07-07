@@ -201,60 +201,104 @@ DETAIL_ITEMS = [
 EXCLUDE_ROW = re.compile(r"合計|總計|週轉|days|Total")
 
 
-def fetch_dividends(co_id):
-    """抓取單一公司全部股利分派歷史（一個請求）"""
-    url = f"{BASE}/mops/web/ajax_t05st09_new"
-    payload = {
-        "encodeURIComponent": "1", "step": "1", "firstin": "1", "off": "1",
-        "queryName": "co_id", "inpuType": "co_id", "TYPEK": "all",
-        "isnew": "false", "co_id": str(co_id),
-        "date1": "99", "date2": str(date.today().year - 1911),
-        "qryType": "2",
-    }
-    r = SESSION.post(url, data=payload, timeout=45)
+_DIV_WARMED = False
+
+
+def _warm_dividend_session():
+    global _DIV_WARMED
+    if _DIV_WARMED:
+        return
+    try:
+        SESSION.post(f"{BASE}/mops/web/ajax_t05st09_new",
+                     data={"encodeURIComponent": "1", "step": "1", "firstin": "1",
+                           "off": "1", "TYPEK": "sii"},
+                     timeout=30)
+    except Exception:
+        pass
+    _DIV_WARMED = True
+
+
+def _flat_cols(df):
+    return [" ".join(map(str, c)) if isinstance(c, tuple) else str(c) for c in df.columns]
+
+
+def _parse_div_table(df, roc_year, out):
+    cols = _flat_cols(df)
+    code_c = next((i for i, c in enumerate(cols) if "代號" in c), None)
+    if code_c is None:
+        return
+    period_c = next((i for i, c in enumerate(cols)
+                     if "期間" in c or "期別" in c or ("股利所屬" in c and "度" in c)), None)
+    cash_total = [i for i, c in enumerate(cols) if "現金" in c and ("合計" in c or "總計" in c)]
+    cash_parts = [i for i, c in enumerate(cols) if "現金股利" in c and ("盈餘" in c or "公積" in c)]
+    cash_any = [i for i, c in enumerate(cols) if "現金股利" in c]
+    stk_total = [i for i, c in enumerate(cols) if "股票" in c and ("合計" in c or "總計" in c)]
+    stk_parts = [i for i, c in enumerate(cols) if "股票股利" in c and ("盈餘" in c or "公積" in c)]
+    cash_cols = cash_total[:1] or cash_parts or cash_any[-1:]
+    stk_cols = stk_total[:1] or stk_parts
+    if not cash_cols:
+        return
+    for _, row in df.iterrows():
+        raw_code = str(row.iloc[code_c]).strip().split(".")[0]
+        m = re.match(r"(\d{4,6})", raw_code)
+        if not m:
+            continue
+        code = m.group(1)
+        period = str(row.iloc[period_c]).strip() if period_c is not None else f"{roc_year}年"
+        if period in ("", "nan"):
+            period = f"{roc_year}年"
+        cash = sum(v for v in (to_num(row.iloc[ci]) for ci in cash_cols) if v)
+        stk = sum(v for v in (to_num(row.iloc[ci]) for ci in stk_cols) if v)
+        if not cash and not stk:
+            continue
+        out.setdefault(code, {})[period] = {"p": period, "cash": round(cash, 5), "stock": round(stk, 5)}
+
+
+def fetch_dividends_year(roc_year):
+    """抓取單一年度全部上市公司股利分派（一個請求涵蓋全市場）"""
+    _warm_dividend_session()
+    url = f"{BASE}/server-java/t05st09sub?step=1&TYPEK=sii&YEAR={roc_year}"
+    r = SESSION.get(url, timeout=90,
+                    headers={"Referer": f"{BASE}/mops/web/t05st09_new"})
     r.raise_for_status()
-    r.encoding = r.apparent_encoding or "utf8"
+    r.encoding = r.apparent_encoding or "big5"
     try:
         tables = pd.read_html(io.StringIO(r.text))
     except ValueError:
-        return None
-    out = []
+        return {}, []
+    out = {}
     for df in tables:
-        cols = [str(c) for c in df.columns]
-        flat = " ".join(cols)
-        if "股利" not in flat:
-            continue
-        period_c = None
-        cash_c = None
-        stock_c = None
-        for ci, c in enumerate(cols):
-            if period_c is None and ("期間" in c or "股利所屬" in c or "年度" in c):
-                period_c = ci
-            if cash_c is None and "現金股利" in c and ("合計" in c or "盈餘" in c or "元/股" in c):
-                cash_c = ci
-            if stock_c is None and "股票股利" in c and ("合計" in c or "盈餘" in c or "元/股" in c):
-                stock_c = ci
-        if period_c is None or cash_c is None:
-            continue
-        for _, row in df.iterrows():
-            period = str(row.iloc[period_c]).strip()
-            if not period or period == "nan" or "年" not in period and "季" not in period and not re.search(r"\d", period):
-                continue
-            cash = to_num(row.iloc[cash_c])
-            stk = to_num(row.iloc[stock_c]) if stock_c is not None else None
-            if cash is None and stk is None:
-                continue
-            out.append({"p": period, "cash": cash or 0, "stock": stk or 0})
+        _parse_div_table(df, roc_year, out)
     if not out:
-        return None
-    seen = set()
-    uniq = []
-    for d in out:
-        if d["p"] in seen:
+        return {}, tables
+    return {code: list(periods.values()) for code, periods in out.items()}, []
+
+
+def run_dividends(y1, y2):
+    merged = {}
+    for y in range(y1, y2 + 1):
+        roc = y - 1911
+        print(f"[div] {roc} 年度股利分派 ...", flush=True)
+        try:
+            data, _ = fetch_dividends_year(roc)
+        except Exception as e:
+            print(f"[div] {roc} 失敗：{e}")
+            polite_sleep(3)
             continue
-        seen.add(d["p"])
-        uniq.append(d)
-    return uniq
+        for code, rows in data.items():
+            merged.setdefault(code, []).extend(rows)
+        print(f"[div] {roc} 完成，{len(data)} 檔")
+        polite_sleep()
+    n = 0
+    for code, rows in merged.items():
+        obj = load_stock(code)
+        old = {d["p"]: d for d in obj.get("div", [])}
+        for d in rows:
+            old[d["p"]] = d
+        obj["div"] = list(old.values())
+        save_stock(obj)
+        n += 1
+    print(f"[div] 已寫入 {n} 檔股利紀錄")
 
 
 def fetch_detail(co_id, year, season):
@@ -371,23 +415,6 @@ def run_detail(codes, quarters, limit):
     done = load_progress()
     count = 0
     for code in codes:
-        if (code, 0, 0) not in done:
-            if count >= limit:
-                save_progress(done)
-                print(f"[detail] 已達本次上限 {limit}，進度已存檔，下次自動續傳")
-                return count
-            try:
-                divs = fetch_dividends(code)
-                done.add((code, 0, 0))
-                count += 1
-                if divs:
-                    obj = load_stock(code)
-                    obj["div"] = divs
-                    save_stock(obj)
-                    print(f"[div] {code} {len(divs)} 筆股利紀錄")
-            except Exception as e:
-                print(f"[div] {code} 失敗：{e}（下次重試）")
-            polite_sleep()
         for (y, s) in quarters:
             key = [code, y, s]
             if tuple(key) in done:
@@ -433,12 +460,26 @@ def main():
     ap.add_argument("--limit", type=int, default=1200)
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--probe", nargs=3, metavar=("CODE", "YEAR", "SEASON"))
-    ap.add_argument("--probe-div", type=str, metavar="CODE")
+    ap.add_argument("--probe-div", type=str, metavar="ROC_YEAR")
+    ap.add_argument("--dividends-backfill", nargs=2, type=int, metavar=("Y1", "Y2"))
     args = ap.parse_args()
 
     if args.probe_div:
-        d = fetch_dividends(args.probe_div)
-        print(json.dumps(d, ensure_ascii=False, indent=2))
+        data, raw = fetch_dividends_year(int(args.probe_div))
+        if data:
+            sample = data.get("2330") or next(iter(data.values()))
+            print(f"共 {len(data)} 檔。範例（2330 或第一檔）：")
+            print(json.dumps(sample, ensure_ascii=False, indent=2))
+        else:
+            print("解析不到股利資料。以下是頁面表格診斷：")
+            for i, df in enumerate(raw[:5]):
+                cols = [" ".join(map(str, c)) if isinstance(c, tuple) else str(c) for c in df.columns]
+                print(f"table {i}: shape={df.shape}")
+                print("  cols:", [c[:40] for c in cols[:12]])
+        return
+
+    if args.dividends_backfill:
+        run_dividends(args.dividends_backfill[0], args.dividends_backfill[1])
         return
 
     if args.probe:
@@ -479,6 +520,7 @@ def main():
     if args.update:
         y, s = latest_published_quarter()
         run_bulk(y, s)
+        run_dividends(date.today().year - 1, date.today().year)
         codes = all_codes_with_data()
         run_detail(codes, [(y, s)], limit=10**9)
         return
