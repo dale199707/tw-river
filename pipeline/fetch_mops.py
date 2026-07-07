@@ -108,7 +108,7 @@ def fetch_bulk_tables(ajax, year, season):
     }
     r = SESSION.post(url, data=payload, timeout=45)
     r.raise_for_status()
-    r.encoding = "utf8"
+    r.encoding = r.apparent_encoding or "utf8"
     try:
         return pd.read_html(io.StringIO(r.text))
     except ValueError:
@@ -197,7 +197,7 @@ def fetch_detail(co_id, year, season):
            f"&SYEAR={year}&SSEASON={season}&REPORT_ID=C")
     r = SESSION.get(url, timeout=45)
     r.raise_for_status()
-    r.encoding = "big5" if "big5" in r.text[:400].lower() else "utf8"
+    r.encoding = r.apparent_encoding or "big5"
     text = r.text
     if "查無" in text or "無應編製" in text:
         return None
@@ -210,22 +210,30 @@ def fetch_detail(co_id, year, season):
         if df.shape[1] < 2:
             continue
         for _, row in df.iterrows():
-            label = str(row.iloc[0]).strip()
-            if not label or label == "nan":
-                continue
+            cells = [str(v).replace("\u3000", " ").replace("\xa0", " ").strip()
+                     for v in row.tolist()]
             for key, kws in DETAIL_ITEMS:
                 if key in found:
                     continue
-                for kw in kws:
-                    if label.startswith(kw) and not EXCLUDE_ROW.search(label.replace(kw, "")):
-                        val = None
-                        for ci in range(1, min(df.shape[1], 4)):
-                            val = to_num(row.iloc[ci])
-                            if val is not None:
-                                break
-                        if val is not None:
-                            found[key] = val
+                hit = -1
+                for ci, cell in enumerate(cells):
+                    if cell in ("", "nan"):
+                        continue
+                    for kw in kws:
+                        if cell.startswith(kw) and not EXCLUDE_ROW.search(cell.replace(kw, "")):
+                            hit = ci
+                            break
+                    if hit >= 0:
                         break
+                if hit < 0:
+                    continue
+                val = None
+                for ci in range(hit + 1, len(cells)):
+                    val = to_num(cells[ci])
+                    if val is not None:
+                        break
+                if val is not None:
+                    found[key] = val
     return found or None
 
 

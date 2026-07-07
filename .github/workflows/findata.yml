@@ -1,0 +1,91 @@
+name: Financial Data Pipeline
+
+on:
+  schedule:
+    - cron: "30 2 16 4,5,8,11 *"
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "執行模式"
+        required: true
+        default: "update"
+        type: choice
+        options:
+          - update
+          - bulk-backfill
+          - detail-backfill
+
+permissions:
+  contents: write
+
+concurrency:
+  group: findata
+  cancel-in-progress: false
+
+jobs:
+  findata:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests pandas lxml
+
+      - name: Decide mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "30 2 16 4,5,8,11 *" ]; then
+            echo "mode=update" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=detail-backfill" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check backfill already complete
+        id: guard
+        if: steps.mode.outputs.mode == 'detail-backfill'
+        run: |
+          python3 - <<'EOF'
+          import json, os
+          from pathlib import Path
+          prog = Path("data/fin_progress.json")
+          fin = Path("data/fin")
+          codes = len(list(fin.glob("*.json"))) if fin.exists() else 0
+          done = len(json.loads(prog.read_text())) if prog.exists() else 0
+          skip = "true" if codes > 0 and done >= codes * 33 else "false"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"skip={skip}\n")
+          print(f"codes={codes} done={done} skip={skip}")
+          EOF
+
+      - name: Run bulk backfill
+        if: steps.mode.outputs.mode == 'bulk-backfill'
+        run: python3 pipeline/fetch_mops.py --bulk-backfill 2018 2026
+
+      - name: Run detail backfill chunk
+        if: steps.mode.outputs.mode == 'detail-backfill' && steps.guard.outputs.skip != 'true'
+        run: python3 pipeline/fetch_mops.py --detail-backfill 2018 2026 --limit 1200
+
+      - name: Run quarterly update
+        if: steps.mode.outputs.mode == 'update'
+        run: python3 pipeline/fetch_mops.py --update
+
+      - name: Commit data
+        run: |
+          git config user.name "findata-bot"
+          git config user.email "actions@github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "no changes"
+          else
+            git commit -m "findata: ${{ steps.mode.outputs.mode }} $(date -u +%Y-%m-%dT%H:%M)"
+            git pull --rebase origin main
+            git push
+          fi
