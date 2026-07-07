@@ -207,6 +207,79 @@ async function loadHistory(code,years,quote){
   });
 }
 
+/* ============ 財報資料（data/fin/{code}.json，由 pipeline 產生） ============ */
+async function loadFin(code){
+  try{
+    const r=await fetch(`data/fin/${code}.json`,{cache:"no-store"});
+    if(!r.ok) return null;
+    return await r.json();
+  }catch(e){ return null; }
+}
+
+const CUM_FIELDS=["rev","gp","op","ni","eps","dep","ocf","capex"];
+function finQuarters(fin){
+  if(!fin||!fin.q) return null;
+  const rows=Object.keys(fin.q).map(k=>{
+    const m=k.match(/^(\d{4})Q([1-4])$/);
+    return m?{k,y:+m[1],s:+m[2],...fin.q[k]}:null;
+  }).filter(Boolean).sort((a,b)=>a.y-b.y||a.s-b.s);
+  if(!rows.length) return null;
+  rows.forEach(r=>{
+    const prev=r.s>1?rows.find(x=>x.y===r.y&&x.s===r.s-1):null;
+    CUM_FIELDS.forEach(f=>{
+      if(r.s===1) r[f+"_q"]=r[f]??null;
+      else r[f+"_q"]=(r[f]!=null&&prev&&prev[f]!=null)?r[f]-prev[f]:null;
+    });
+  });
+  return rows;
+}
+function trailing4(rows,i,field){
+  let sum=0,n=0;
+  for(let j=i;j>=0&&n<4;j--){ const v=rows[j][field]; if(v==null) return null; sum+=v; n++; }
+  return n===4?sum:null;
+}
+
+function QChart({title,labels,series,unit="",decimals=1}){
+  const W=460,H=230,PAD={l:14,r:56,t:20,b:26};
+  const all=series.flatMap(s=>s.data.filter(v=>v!=null));
+  if(!all.length) return (
+    <div className="chartpanel"><div className="charthead">{title}</div>
+    <div style={{color:"#556",textAlign:"center",padding:"50px 0"}}>資料不足</div></div>
+  );
+  let vmax=Math.max(...all),vmin=Math.min(...all,0);
+  const span=(vmax-vmin)||1; vmax+=span*0.12; vmin-=span*0.08;
+  const X=i=>PAD.l+i*(W-PAD.l-PAD.r)/Math.max(labels.length-1,1);
+  const Y=v=>PAD.t+(1-(v-vmin)/(vmax-vmin))*(H-PAD.t-PAD.b);
+  const step=Math.max(1,Math.ceil(labels.length/9));
+  return (
+    <div className="chartpanel">
+      <div className="charthead">{title}</div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
+        {vmin<0&&<line x1={PAD.l} x2={W-PAD.r} y1={Y(0)} y2={Y(0)} stroke="#334" strokeWidth="1"/>}
+        {series.map((s,si)=>{
+          let path="",started=false;
+          s.data.forEach((v,i)=>{ if(v==null){started=false;return;} path+=(started?"L":"M")+X(i).toFixed(1)+","+Y(v).toFixed(1); started=true; });
+          const lastIdx=s.data.map((v,i)=>v!=null?i:-1).filter(i=>i>=0).pop();
+          return (
+            <g key={si}>
+              <path d={path} fill="none" stroke={s.color} strokeWidth="2"/>
+              {lastIdx!=null&&(
+                <text x={X(lastIdx)+6} y={Y(s.data[lastIdx])+4-si*0} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>
+              )}
+            </g>
+          );
+        })}
+        {labels.map((lb,i)=>i%step===0?(
+          <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="9.5" textAnchor="middle" className="mono">{lb}</text>
+        ):null)}
+      </svg>
+      <div className="legend">
+        {series.map((s,si)=><span key={si} style={{color:"var(--dim)"}}><span style={{color:s.color,fontWeight:700}}>—</span> {s.name}</span>)}
+      </div>
+    </div>
+  );
+}
+
 /* ============ 河流圖 (SVG) ============ */
 function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",invert=false,hiLabel,loLabel}){
   const W=460,H=260,PAD={l:14,r:44,t:26,b:26};
@@ -309,6 +382,7 @@ function App(){
   const [err,setErr]=useState(null);
   const [judgePrice,setJudgePrice]=useState("");
   const [tab,setTab]=useState("info");
+  const [fin,setFin]=useState(null);
   const abortRef=useRef(0);
 
   useEffect(()=>{ loadSnapshots().then(setSnap).catch(e=>setSnapErr(String(e))); },[]);
@@ -322,13 +396,14 @@ function App(){
   };
 
   const pick=useCallback(async c=>{
-    setSugg([]); setQuery(c.code+" "+c.name); setErr(null); setHist(null);
+    setSugg([]); setQuery(c.code+" "+c.name); setErr(null); setHist(null); setFin(null);
     const quote=snap.quotes[c.code]||{};
     const s={...c,quote};
     setStock(s);
     setJudgePrice(quote.close!=null?String(quote.close):"");
     setLoading(true);
     const myRun=++abortRef.current;
+    loadFin(c.code).then(f=>{ if(abortRef.current===myRun) setFin(f); });
     const nowY=new Date().getFullYear();
     const years=[]; for(let y=nowY-YEARS_BACK+1;y<=nowY;y++) years.push(y);
     setProg({done:1,total:2,msg:`向 TWSE 取得 ${c.name} 近 ${YEARS_BACK} 年資料…`});
@@ -354,12 +429,40 @@ function App(){
     else setErr(`找不到「${q}」。目前僅支援上市（TWSE）股票，上櫃股票尚未支援。`);
   };
 
+  const finRows=useMemo(()=>finQuarters(fin),[fin]);
+
   const model=useMemo(()=>{
     if(!hist||!stock) return null;
-    const rows=hist.data.map((d,i)=>d||{year:hist.years[i]});
+    const rows=hist.data.map((d,i)=>d?{...d}:{year:hist.years[i]});
+    let finUsed=false;
+    if(finRows&&finRows.length){
+      const annual={};
+      finRows.forEach(r=>{ if(r.s===4) annual[r.y]={eps:r.eps,bvps:r.bvps}; });
+      const li=finRows.length-1;
+      const epsTTM=trailing4(finRows,li,"eps_q");
+      const bvpsLatest=finRows[li].bvps;
+      const lastY=rows[rows.length-1].year;
+      rows.forEach(r=>{
+        if(!r||r.hi==null) return;
+        const a=annual[r.year]||{};
+        let eps=(r.year===lastY&&epsTTM!=null)?epsTTM:(a.eps??null);
+        let bvps=(r.year===lastY&&bvpsLatest!=null)?bvpsLatest:(a.bvps??null);
+        if(eps!=null){
+          finUsed=true;
+          r.eps=eps;
+          if(eps>0){ r.peHi=r.hi/eps; r.peLo=r.lo/eps; r.peAvg=r.avg/eps; }
+          else { r.peHi=r.peLo=r.peAvg=null; }
+        }
+        if(bvps!=null&&bvps>0){
+          finUsed=true;
+          r.bvps=bvps; r.pbHi=r.hi/bvps; r.pbLo=r.lo/bvps; r.pbAvg=r.avg/bvps;
+        }
+      });
+    }
     const q=stock.quote;
-    const epsNow = q.pe&&q.close ? q.close/q.pe : null;
-    const bvpsNow = q.pb&&q.close ? q.close/q.pb : null;
+    const lastRow=rows[rows.length-1];
+    const epsNow = (finRows&&lastRow&&lastRow.eps!=null&&finUsed)?lastRow.eps:(q.pe&&q.close ? q.close/q.pe : null);
+    const bvpsNow = (finRows&&lastRow&&lastRow.bvps!=null&&finUsed)?lastRow.bvps:(q.pb&&q.close ? q.close/q.pb : null);
     const dpsNow = q.yield!=null&&q.close ? q.close*q.yield/100 : null;
     const last=k=>rows.filter(r=>r[k]!=null).slice(-BAND_YEARS).map(r=>r[k]);
     const mm=a=>a.length?{max:Math.max(...a),min:Math.min(...a),avg:a.reduce((s,v)=>s+v,0)/a.length}:null;
@@ -381,8 +484,34 @@ function App(){
     const p7=past.slice(-7);
     const payout7=p7.length?p7.reduce((s,r)=>s+r.dps/r.eps,0)/p7.length:null;
     const dpsLast=past.length?past[past.length-1].dps:null;
-    return {rows,epsNow,bvpsNow,dpsNow,priceBand,peBand,pbBand,yBand,payoutLast,payout7,dpsLast};
-  },[hist,stock]);
+    return {rows,epsNow,bvpsNow,dpsNow,priceBand,peBand,pbBand,yBand,payoutLast,payout7,dpsLast,finUsed};
+  },[hist,stock,finRows]);
+
+  const finView=useMemo(()=>{
+    if(!finRows||!finRows.length||!stock) return null;
+    const labels=finRows.map(r=>String(r.y).slice(2)+"Q"+r.s);
+    const pct=(a,b)=>a!=null&&b?a/b*100:null;
+    const gm=finRows.map(r=>pct(r.gp_q,r.rev_q));
+    const om=finRows.map(r=>pct(r.op_q,r.rev_q));
+    const nm=finRows.map(r=>pct(r.ni_q,r.rev_q));
+    const epsQ=finRows.map(r=>r.eps_q??null);
+    const epsT=finRows.map((r,i)=>trailing4(finRows,i,"eps_q"));
+    const roe=finRows.map((r,i)=>{const t=trailing4(finRows,i,"ni_q");return t!=null&&r.eq?t/r.eq*100:null;});
+    const roa=finRows.map((r,i)=>{const t=trailing4(finRows,i,"ni_q");return t!=null&&r.assets?t/r.assets*100:null;});
+    const cogs=finRows.map(r=>(r.rev_q!=null&&r.gp_q!=null)?r.rev_q-r.gp_q:null);
+    const invD=finRows.map((r,i)=>cogs[i]>0&&r.inv!=null?r.inv/cogs[i]*90:null);
+    const arD=finRows.map(r=>r.rev_q>0&&r.ar!=null?r.ar/r.rev_q*90:null);
+    const apD=finRows.map((r,i)=>cogs[i]>0&&r.ap!=null?r.ap/cogs[i]*90:null);
+    const ccc=finRows.map((r,i)=>(invD[i]!=null&&arD[i]!=null&&apD[i]!=null)?invD[i]+arD[i]-apD[i]:null);
+    const shares=stock.capital?stock.capital/10:null;
+    const oe=finRows.map((r,i)=>{
+      const ni=trailing4(finRows,i,"ni_q"),dep=trailing4(finRows,i,"dep_q"),cap=trailing4(finRows,i,"capex_q");
+      if(ni==null||dep==null||cap==null||!shares) return null;
+      return (ni+dep-Math.abs(cap))*1000/shares;
+    });
+    const hasDetail=finRows.some(r=>r.inv!=null||r.dep!=null);
+    return {labels,gm,om,nm,epsQ,epsT,roe,roa,invD,arD,apD,ccc,oe,hasDetail};
+  },[finRows,stock]);
 
   const jp=num(judgePrice);
   const judge=useMemo(()=>{
@@ -463,6 +592,7 @@ function App(){
             <button className={"tab"+(tab==="info"?" active":"")} onClick={()=>setTab("info")}>基本資訊</button>
             <button className={"tab"+(tab==="judge"?" active":"")} onClick={()=>setTab("judge")}>價格位階</button>
             <button className={"tab"+(tab==="charts"?" active":"")} onClick={()=>setTab("charts")}>河流圖</button>
+            <button className={"tab"+(tab==="fin"?" active":"")} onClick={()=>setTab("fin")}>財務指標</button>
           </div>
         </React.Fragment>
       )}
@@ -498,6 +628,56 @@ function App(){
         </div>
       )}
 
+      {stock&&tab==="fin"&&(
+        finView?(
+          <React.Fragment>
+            <div className="charts">
+              <QChart title="三率（單季）" labels={finView.labels} unit="%"
+                series={[
+                  {name:"毛利率",color:"#ff9142",data:finView.gm},
+                  {name:"營利率",color:"#ffd54a",data:finView.om},
+                  {name:"純益率",color:"#53c8f5",data:finView.nm},
+                ]}/>
+              <QChart title="每股盈餘" labels={finView.labels} unit="元" decimals={2}
+                series={[
+                  {name:"單季 EPS",color:"#53c8f5",data:finView.epsQ},
+                  {name:"近四季累計",color:"#ff9142",data:finView.epsT},
+                ]}/>
+              <QChart title="ROE／ROA（近四季）" labels={finView.labels} unit="%"
+                series={[
+                  {name:"ROE",color:"#ff9142",data:finView.roe},
+                  {name:"ROA",color:"#53c8f5",data:finView.roa},
+                ]}/>
+              {finView.hasDetail&&(
+                <QChart title="現金週期（天）" labels={finView.labels} unit="" decimals={0}
+                  series={[
+                    {name:"存貨天數",color:"#ffd54a",data:finView.invD},
+                    {name:"應收天數",color:"#53c8f5",data:finView.arD},
+                    {name:"應付天數",color:"#8b98a9",data:finView.apD},
+                    {name:"現金循環",color:"#ff9142",data:finView.ccc},
+                  ]}/>
+              )}
+              {finView.hasDetail&&(
+                <QChart title="公司賺的是真錢嗎？（每股・近四季）" labels={finView.labels} unit="元" decimals={2}
+                  series={[
+                    {name:"每股業主盈餘（淨利＋折舊−資本支出）",color:"#4ade80",data:finView.oe},
+                    {name:"每股盈餘",color:"#8b98a9",data:finView.epsT},
+                  ]}/>
+              )}
+            </div>
+            {!finView.hasDetail&&(
+              <div className="note" style={{marginTop:12}}>此檔尚未回補個別財報細項（存貨、應收應付、折舊、資本支出），現金週期與業主盈餘圖將在 pipeline 的 detail 回補完成後出現。</div>
+            )}
+            <div className="note" style={{marginTop:8}}>資料來源：公開資訊觀測站季報，由 GitHub Actions 每季自動更新。金額欄位單位為財報原值（千元），比率與每股數值已換算。</div>
+          </React.Fragment>
+        ):(
+          <div className="card" style={{textAlign:"center",padding:"40px 16px",color:"var(--dim)"}}>
+            此檔尚無財報資料檔（data/fin/{stock.code}.json）<br/>
+            <span style={{fontSize:12}}>執行 pipeline 的 bulk-backfill 之後，全部上市公司的季報彙總就會建檔；detail 回補完成後會再加上現金週期與業主盈餘。</span>
+          </div>
+        )
+      )}
+
       {loading&&(
         <div className="card progress">
           <div>{prog.msg}</div>
@@ -525,7 +705,7 @@ function App(){
             <div style={{marginTop:16}}>{bandTable}</div>
             <div className="note">
               高價上限／低限＝近 {BAND_YEARS} 年「年度最高值」的最大／最小值換算；關注價＝近 {BAND_YEARS} 年年度最高值的平均；低價上限／低限＝近 {BAND_YEARS} 年「年度最低值」的最大／最小值換算。
-              換算基準：目前 EPS {fmt(model.epsNow,2)}、每股淨值 {fmt(model.bvpsNow,1)}、每股股息 {fmt(model.dpsNow,2)}（由當日收盤價與本益比／淨值比／殖利率回推）。
+              換算基準：目前 EPS {fmt(model.epsNow,2)}、每股淨值 {fmt(model.bvpsNow,1)}、每股股息 {fmt(model.dpsNow,2)}{model.finUsed?"（EPS／淨值採用財報實際值）":"（由當日收盤價與本益比／淨值比／殖利率回推）"}。
             </div>
           </div>
       )}
