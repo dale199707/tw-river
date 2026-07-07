@@ -68,6 +68,10 @@ button:disabled{opacity:.5;cursor:default}
 .tab{background:none;border:none;border-bottom:2px solid transparent;border-radius:0;color:var(--dim);padding:10px 18px;font-size:15px;cursor:pointer}
 .tab:hover{color:var(--text);filter:none}
 .tab.active{color:var(--text);border-bottom-color:var(--accent);font-weight:700}
+.tablewrap{overflow-x:auto;margin-top:8px}
+.pricetable.small th,.pricetable.small td{padding:5px 9px;font-size:12.5px;white-space:nowrap}
+.pricetable.small td{text-align:right}
+.pricetable.small td:first-child{text-align:left}
 </style>
 </head>
 <body>
@@ -246,25 +250,45 @@ function QChart({title,labels,series,unit="",decimals=1}){
     <div className="chartpanel"><div className="charthead">{title}</div>
     <div style={{color:"#556",textAlign:"center",padding:"50px 0"}}>資料不足</div></div>
   );
+  const hasBar=series.some(s=>s.bar);
   let vmax=Math.max(...all),vmin=Math.min(...all,0);
+  if(hasBar) vmax=Math.max(vmax,0);
   const span=(vmax-vmin)||1; vmax+=span*0.12; vmin-=span*0.08;
   const X=i=>PAD.l+i*(W-PAD.l-PAD.r)/Math.max(labels.length-1,1);
   const Y=v=>PAD.t+(1-(v-vmin)/(vmax-vmin))*(H-PAD.t-PAD.b);
   const step=Math.max(1,Math.ceil(labels.length/9));
+  const barSeries=series.filter(s=>s.bar);
+  const slotW=(W-PAD.l-PAD.r)/Math.max(labels.length,1);
+  const bw=Math.max(2,Math.min(10,(slotW*0.75)/Math.max(barSeries.length,1)));
+  let barIdx=-1;
   return (
     <div className="chartpanel">
       <div className="charthead">{title}</div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
-        {vmin<0&&<line x1={PAD.l} x2={W-PAD.r} y1={Y(0)} y2={Y(0)} stroke="#334" strokeWidth="1"/>}
+        {(vmin<0||hasBar)&&<line x1={PAD.l} x2={W-PAD.r} y1={Y(0)} y2={Y(0)} stroke="#334" strokeWidth="1"/>}
         {series.map((s,si)=>{
+          const lastIdx=s.data.map((v,i)=>v!=null?i:-1).filter(i=>i>=0).pop();
+          if(s.bar){
+            barIdx++;
+            const off=-(barSeries.length*bw)/2+barIdx*bw;
+            return (
+              <g key={si}>
+                {s.data.map((v,i)=>v==null?null:(
+                  <rect key={i} x={X(i)+off} width={Math.max(bw-1,1)}
+                    y={Y(Math.max(v,0))} height={Math.max(Math.abs(Y(v)-Y(0)),1)}
+                    fill={s.color} opacity="0.9"/>
+                ))}
+                {lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={Y(s.data[lastIdx])+4} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>}
+              </g>
+            );
+          }
           let path="",started=false;
           s.data.forEach((v,i)=>{ if(v==null){started=false;return;} path+=(started?"L":"M")+X(i).toFixed(1)+","+Y(v).toFixed(1); started=true; });
-          const lastIdx=s.data.map((v,i)=>v!=null?i:-1).filter(i=>i>=0).pop();
           return (
             <g key={si}>
               <path d={path} fill="none" stroke={s.color} strokeWidth="2"/>
               {lastIdx!=null&&(
-                <text x={X(lastIdx)+6} y={Y(s.data[lastIdx])+4-si*0} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>
+                <text x={X(lastIdx)+6} y={Y(s.data[lastIdx])+4} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>
               )}
             </g>
           );
@@ -273,8 +297,8 @@ function QChart({title,labels,series,unit="",decimals=1}){
           <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="9.5" textAnchor="middle" className="mono">{lb}</text>
         ):null)}
       </svg>
-      <div className="legend">
-        {series.map((s,si)=><span key={si} style={{color:"var(--dim)"}}><span style={{color:s.color,fontWeight:700}}>—</span> {s.name}</span>)}
+      <div className="legend" style={{flexWrap:"wrap"}}>
+        {series.map((s,si)=><span key={si} style={{color:"var(--dim)"}}><span style={{color:s.color,fontWeight:700}}>{s.bar?"▮":"—"}</span> {s.name}</span>)}
       </div>
     </div>
   );
@@ -542,6 +566,11 @@ function App(){
       if(ni==null||dep==null||cap==null||!shares) return null;
       return (ni+dep-Math.abs(cap))*1000/shares;
     });
+    const depCF=finRows.map((r,i)=>{
+      const dep=trailing4(finRows,i,"dep_q"),cap=trailing4(finRows,i,"capex_q");
+      if(dep==null||cap==null||!shares) return null;
+      return (dep-Math.abs(cap))*1000/shares;
+    });
     const B=v=>v!=null?v/1e5:null;
     const revB=finRows.map((r,i)=>B(trailing4(finRows,i,"rev_q")));
     const ocfB=finRows.map((r,i)=>B(trailing4(finRows,i,"ocf_q")));
@@ -577,7 +606,7 @@ function App(){
     const hasNonop=finRows.some(r=>r.nonop!=null);
     const hasCA=finRows.some(r=>r.ca!=null);
     const hasDetail=finRows.some(r=>r.inv!=null||r.dep!=null);
-    return {labels,gm,om,nm,epsQ,epsT,roe,roa,invD,arD,apD,ccc,oe,hasDetail,
+    return {labels,gm,om,nm,epsQ,epsT,roe,roa,invD,arD,apD,ccc,oe,depCF,hasDetail,
       revB,ocfB,niB,opB,nonopB,stbB,ltbB,borrowB,fixedTurn,invPct,arPct,apPct,
       defensive,outsideRet,stack,debtQuick,hasBorrow,hasNonop,hasCA};
   },[finRows,stock]);
@@ -662,6 +691,7 @@ function App(){
             <button className={"tab"+(tab==="judge"?" active":"")} onClick={()=>setTab("judge")}>價格位階</button>
             <button className={"tab"+(tab==="charts"?" active":"")} onClick={()=>setTab("charts")}>河流圖</button>
             <button className={"tab"+(tab==="fin"?" active":"")} onClick={()=>setTab("fin")}>財務指標</button>
+            <button className={"tab"+(tab==="table"?" active":"")} onClick={()=>setTab("table")}>詳細數據</button>
           </div>
         </React.Fragment>
       )}
@@ -710,7 +740,7 @@ function App(){
                 ]}/>
               <QChart title="每股盈餘" labels={finView.labels} unit="元" decimals={2}
                 series={[
-                  {name:"單季 EPS",color:"#53c8f5",data:finView.epsQ},
+                  {name:"單季 EPS",color:"#53c8f5",bar:true,data:finView.epsQ},
                   {name:"近四季累計",color:"#ff9142",data:finView.epsT},
                 ]}/>
               <QChart title="ROE／ROA（近四季）" labels={finView.labels} unit="%"
@@ -719,9 +749,10 @@ function App(){
                   {name:"ROA",color:"#53c8f5",data:finView.roa},
                 ]}/>
               {finView.hasDetail&&(
-                <QChart title="公司真的賺錢嗎？（每股・近四季）" labels={finView.labels} unit="元" decimals={2}
+                <QChart title="公司真的賺錢嗎？（每股・近四季）" labels={finView.labels} unit="元" decimals={1}
                   series={[
-                    {name:"每股業主盈餘",color:"#4ade80",data:finView.oe},
+                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,data:finView.oe},
+                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,data:finView.depCF},
                     {name:"每股盈餘",color:"#8b98a9",data:finView.epsT},
                   ]}/>
               )}
@@ -734,8 +765,8 @@ function App(){
               {finView.hasBorrow&&(
                 <QChart title="公司資金吃緊嗎？（億）" labels={finView.labels} unit="" decimals={0}
                   series={[
-                    {name:"短期借款",color:"#ffd54a",data:finView.stbB},
-                    {name:"長期借款",color:"#4ade80",data:finView.ltbB},
+                    {name:"短期借款",color:"#ffd54a",bar:true,data:finView.stbB},
+                    {name:"長期借款",color:"#4ade80",bar:true,data:finView.ltbB},
                     {name:"借款總額",color:"#c2410c",data:finView.borrowB},
                     {name:"稅後純益",color:"#53c8f5",data:finView.niB},
                   ]}/>
@@ -754,8 +785,8 @@ function App(){
               {finView.hasNonop&&(
                 <QChart title="公司獲利來源？（近四季・億）" labels={finView.labels} unit="" decimals={0}
                   series={[
-                    {name:"本業（營業利益）",color:"#53c8f5",data:finView.opB},
-                    {name:"業外收支",color:"#ff9142",data:finView.nonopB},
+                    {name:"本業（營業利益）",color:"#53c8f5",bar:true,data:finView.opB},
+                    {name:"業外收支",color:"#ff9142",bar:true,data:finView.nonopB},
                   ]}/>
               )}
               {finView.hasNonop&&(
@@ -768,7 +799,7 @@ function App(){
               {model&&(
                 <QChart title="公司獲利能與股東分享嗎？（年）" labels={model.rows.map(r=>String(r.year-1911))} unit="" decimals={1}
                   series={[
-                    {name:"現金股利（元）",color:"#53c8f5",data:model.rows.map(r=>r.dps??null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:model.rows.map(r=>r.dps??null)},
                     {name:"現金配息率（%）",color:"#ff9142",data:model.rows.map(r=>(r.dps!=null&&r.eps>0)?r.dps/r.eps*100:null)},
                   ]}/>
               )}
@@ -823,6 +854,88 @@ function App(){
         )
       )}
 
+      {stock&&tab==="table"&&(
+        <React.Fragment>
+          {model&&(
+            <div className="card">
+              <div className="cardtitle">年度估價數據（近 {YEARS_BACK} 年）</div>
+              <div className="tablewrap">
+                <table className="pricetable small mono">
+                  <thead><tr>
+                    <th>年度</th><th>最高價</th><th>最低價</th><th>平均價</th>
+                    <th>最高本益比</th><th>最低本益比</th><th>最高淨值比</th><th>最低淨值比</th>
+                    <th>高檔殖利率</th><th>低檔殖利率</th>
+                    <th>EPS</th><th>每股淨值</th><th>現金股利</th><th>配息率</th>
+                  </tr></thead>
+                  <tbody>
+                    {[...model.rows].reverse().map(r=>r&&r.hi!=null?(
+                      <tr key={r.year}>
+                        <td>{r.year-1911}</td>
+                        <td className="hiv">{fmt(r.hi,1)}</td>
+                        <td className="lov">{fmt(r.lo,1)}</td>
+                        <td>{fmt(r.avg,1)}</td>
+                        <td className="hiv">{fmt(r.peHi,1)}</td>
+                        <td className="lov">{fmt(r.peLo,1)}</td>
+                        <td className="hiv">{fmt(r.pbHi,2)}</td>
+                        <td className="lov">{fmt(r.pbLo,2)}</td>
+                        <td className="hiv">{r.yAtHi!=null?fmt(r.yAtHi,2)+"%":"—"}</td>
+                        <td className="lov">{r.yAtLo!=null?fmt(r.yAtLo,2)+"%":"—"}</td>
+                        <td>{fmt(r.eps,2)}</td>
+                        <td>{fmt(r.bvps,1)}</td>
+                        <td>{fmt(r.dps,2)}</td>
+                        <td>{(r.dps!=null&&r.eps>0)?fmt(r.dps/r.eps*100,1)+"%":"—"}</td>
+                      </tr>
+                    ):null)}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          {finView&&finRows?(
+            <div className="card">
+              <div className="cardtitle">逐季財報明細</div>
+              <div className="tablewrap">
+                <table className="pricetable small mono">
+                  <thead><tr>
+                    <th>季度</th><th>營收(億)</th><th>毛利率</th><th>營利率</th><th>純益率</th>
+                    <th>單季EPS</th><th>近4Q EPS</th><th>ROE</th><th>每股淨值</th>
+                    <th>存貨天數</th><th>應收天數</th><th>應付天數</th><th>現金週期</th>
+                    <th>業主盈餘</th><th>借款總額(億)</th><th>營業現金流(億)</th>
+                  </tr></thead>
+                  <tbody>
+                    {finRows.map((r,i)=>({r,i})).reverse().map(({r,i})=>(
+                      <tr key={r.k}>
+                        <td>{finView.labels[i]}</td>
+                        <td>{r.rev_q!=null?fmt(r.rev_q/1e5,0):"—"}</td>
+                        <td>{finView.gm[i]!=null?fmt(finView.gm[i],1)+"%":"—"}</td>
+                        <td>{finView.om[i]!=null?fmt(finView.om[i],1)+"%":"—"}</td>
+                        <td>{finView.nm[i]!=null?fmt(finView.nm[i],1)+"%":"—"}</td>
+                        <td>{fmt(finView.epsQ[i],2)}</td>
+                        <td>{fmt(finView.epsT[i],2)}</td>
+                        <td>{finView.roe[i]!=null?fmt(finView.roe[i],1)+"%":"—"}</td>
+                        <td>{fmt(r.bvps,1)}</td>
+                        <td>{fmt(finView.invD[i],0)}</td>
+                        <td>{fmt(finView.arD[i],0)}</td>
+                        <td>{fmt(finView.apD[i],0)}</td>
+                        <td>{fmt(finView.ccc[i],0)}</td>
+                        <td>{fmt(finView.oe[i],1)}</td>
+                        <td>{fmt(finView.borrowB[i],0)}</td>
+                        <td>{r.ocf!=null?fmt(r.ocf/1e5,0):"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="note">業主盈餘為每股（元）近四季；借款、營收、現金流為億元；營業現金流為年初至當季累計。空白代表該季細項尚未回補或無此項目。</div>
+            </div>
+          ):(
+            <div className="card" style={{textAlign:"center",padding:"32px 16px",color:"var(--dim)"}}>
+              此檔尚無財報資料檔，逐季明細將在 pipeline 回補後出現。
+            </div>
+          )}
+        </React.Fragment>
+      )}
+
       {loading&&(
         <div className="card progress">
           <div>{prog.msg}</div>
@@ -857,6 +970,14 @@ function App(){
 
       {model&&!loading&&tab==="charts"&&(
         <React.Fragment>
+          <div className="card" style={{padding:"12px 16px"}}>
+            <div className="judge" style={{marginBottom:0}}>
+              <span style={{color:"var(--dim)",fontSize:14}}>輸入股價</span>
+              <input type="number" step="0.5" value={judgePrice} onChange={e=>setJudgePrice(e.target.value)}/>
+              {stock.quote.close!=null&&<button style={{padding:"8px 12px",fontSize:13,background:"var(--panel2)",border:"1px solid var(--border)"}} onClick={()=>setJudgePrice(String(stock.quote.close))}>回到收盤價</button>}
+              {judge&&judge.posPrice!=null&&(()=>{const v=verdictOf(judge.posPrice);return <span className={"verdict "+v.cls}>股價位階：{v.txt}（{Math.round(judge.posPrice*100)}%）</span>;})()}
+            </div>
+          </div>
           <div className="charts">
             <RiverChart title="股價河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.hi??null),lo:model.rows.map(r=>r.lo??null),avg:model.rows.map(r=>r.avg??null)}}
