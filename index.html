@@ -46,6 +46,10 @@ button:disabled{opacity:.5;cursor:default}
 .keepbtn:disabled{opacity:0.45;cursor:default;filter:none}
 .rmbtn{background:none;border:none;color:var(--dim);padding:2px 6px;font-size:13px}
 .rmbtn:hover{color:#ff6b6b;filter:none}
+.grpchips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.grpchip{background:var(--panel2);border:1px solid var(--border);color:var(--dim);padding:4px 11px;font-size:12.5px;border-radius:14px}
+.grpchip.active{color:var(--gold);border-color:var(--gold)}
+.grpsel{background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:2px 4px;max-width:110px}
 .keyhint{color:var(--dim);font-size:11.5px;border:1px solid var(--border);border-radius:5px;padding:2px 7px}
 @media (hover:none){.keyhint{display:none}}
 .pricetable tbody tr:hover td{background:rgba(255,255,255,0.03)}
@@ -223,11 +227,15 @@ async function loadHistory(code,years,quote){
 }
 
 /* ============ 財報資料（data/fin/{code}.json，由 pipeline 產生） ============ */
+const finMem=new Map();
 async function loadFin(code){
+  if(finMem.has(code)) return finMem.get(code);
   try{
     const r=await fetch(`data/fin/${code}.json`,{cache:"no-store"});
-    if(!r.ok) return null;
-    return await r.json();
+    if(!r.ok){ finMem.set(code,null); return null; }
+    const j=await r.json();
+    finMem.set(code,j);
+    return j;
   }catch(e){ return null; }
 }
 
@@ -473,6 +481,7 @@ function App(){
   const [finLoading,setFinLoading]=useState(false);
   const [watch,setWatch]=useState(()=>{ try{return JSON.parse(localStorage.getItem("twri-watch"))||[];}catch(e){return[];} });
   const [watchOpen,setWatchOpen]=useState(false);
+  const [watchGrp,setWatchGrp]=useState("全部");
   const [browseWatch,setBrowseWatch]=useState(false);
   const abortRef=useRef(0);
 
@@ -695,11 +704,22 @@ function App(){
 
   /* ===== 保留股（觀察清單）===== */
   const saveWatch=list=>{ setWatch(list); try{localStorage.setItem("twri-watch",JSON.stringify(list));}catch(e){} };
+  const grpOf=w=>w.grp||"未分類";
+  const grpList=useMemo(()=>{ const s=new Set(watch.map(grpOf)); return [...s]; },[watch]);
+  const watchFiltered=useMemo(()=>watchGrp==="全部"?watch:watch.filter(w=>grpOf(w)===watchGrp),[watch,watchGrp]);
+  const setGrp=(code,g)=>{
+    if(g==="__new__"){
+      const name=(prompt("新群組名稱：")||"").trim();
+      if(!name) return;
+      g=name;
+    }
+    saveWatch(watch.map(w=>w.code===code?{...w,grp:g}:w));
+  };
   const isKept=stock&&watch.some(w=>w.code===stock.code);
   const toggleKeep=()=>{
     if(!stock) return;
     if(isKept){ saveWatch(watch.filter(w=>w.code!==stock.code)); return; }
-    const entry={code:stock.code,name:stock.name,ts:new Date().toISOString().slice(0,10),snap:{
+    const entry={code:stock.code,name:stock.name,ts:new Date().toISOString().slice(0,10),grp:watchGrp!=="全部"?watchGrp:"未分類",snap:{
       price:stock.quote.close??null,
       eps:model?model.epsNow:null,
       ipoY:stock.ipo||null,
@@ -719,12 +739,12 @@ function App(){
   /* ===== 鍵盤 ← → 逐檔瀏覽 ===== */
   const browseList=useMemo(()=>{
     if(!snap) return null;
-    if(browseWatch&&watch.length){
-      const list=watch.map(w=>snap.companies.find(c=>c.code===w.code)).filter(Boolean);
+    if(browseWatch&&watchFiltered.length){
+      const list=watchFiltered.map(w=>snap.companies.find(c=>c.code===w.code)).filter(Boolean);
       if(list.length) return list;
     }
     return [...snap.companies].sort((a,b)=>a.code.localeCompare(b.code));
-  },[snap,browseWatch,watch]);
+  },[snap,browseWatch,watchFiltered]);
   useEffect(()=>{
     const h=e=>{
       if(e.key!=="ArrowLeft"&&e.key!=="ArrowRight") return;
@@ -740,6 +760,25 @@ function App(){
     window.addEventListener("keydown",h);
     return ()=>window.removeEventListener("keydown",h);
   },[browseList,stock,pick]);
+
+  /* ===== 背景預抓：目前這檔載完後，先抓下一檔×2與上一檔,按 ← → 幾乎即開 ===== */
+  useEffect(()=>{
+    if(!stock||!snap||!browseList||!browseList.length||loading) return;
+    const idx=browseList.findIndex(c=>c.code===stock.code);
+    if(idx<0) return;
+    const n=browseList.length;
+    const targets=[1,2,-1].map(d=>browseList[(idx+d+n)%n]).filter((c,i,a)=>c&&c.code!==stock.code&&a.findIndex(x=>x.code===c.code)===i);
+    let cancelled=false;
+    (async()=>{
+      const nowY=new Date().getFullYear();
+      const years=[]; for(let y=nowY-YEARS_BACK+1;y<=nowY;y++) years.push(y);
+      for(const c of targets){
+        if(cancelled) return;
+        try{ await Promise.all([loadHistory(c.code,years,snap.quotes[c.code]||{}),loadFin(c.code)]); }catch(e){}
+      }
+    })();
+    return ()=>{cancelled=true;};
+  },[stock,snap,browseList,loading]);
 
   const bandTable=model&&(
     <table className="pricetable mono">
@@ -785,23 +824,36 @@ function App(){
       {watchOpen&&(
         <div className="card">
           <div className="cardtitle" style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
-            <span>保留股（{watch.length}）</span>
+            <span>保留股（{watchFiltered.length}{watchGrp!=="全部"?`／${watch.length}`:""}）</span>
             <label style={{fontSize:12.5,color:"var(--dim)",fontWeight:400,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
               <input type="checkbox" checked={browseWatch} onChange={e=>setBrowseWatch(e.target.checked)}/>
-              ← → 僅在保留股間切換
+              ← → 僅在{watchGrp!=="全部"?`「${watchGrp}」群組`:"保留股"}間切換
             </label>
           </div>
-          {watch.length===0?(
-            <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>尚無保留股。查詢股票後，點股名旁的「☆ 保留」即可加入。數值為保留當下的快照。</div>
+          {grpList.length>0&&(
+            <div className="grpchips">
+              {["全部",...grpList].map(g=>(
+                <button key={g} className={"grpchip"+(watchGrp===g?" active":"")} onClick={()=>setWatchGrp(g)}>{g}{g!=="全部"?`（${watch.filter(w=>grpOf(w)===g).length}）`:""}</button>
+              ))}
+            </div>
+          )}
+          {watchFiltered.length===0?(
+            <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>{watch.length===0?"尚無保留股。查詢股票後，點股名旁的「☆ 保留」即可加入。數值為保留當下的快照。":"此群組尚無股票。可用各列的群組選單把股票移進來，或在此群組篩選下按「☆ 保留」。"}</div>
           ):(
             <div className="tablewrap">
               <table className="pricetable small mono">
-                <thead><tr><th>股名</th><th>股號</th><th>保留日</th><th>當時價</th><th>EPS</th><th>掛牌年數</th><th>償債年數</th><th>折舊利益</th><th>折舊年數</th><th>配息率</th><th>高價上限</th><th>關注價</th><th>低價低限</th><th></th></tr></thead>
+                <thead><tr><th>股名</th><th>股號</th><th>群組</th><th>保留日</th><th>當時價</th><th>EPS</th><th>掛牌年數</th><th>償債年數</th><th>折舊利益</th><th>折舊年數</th><th>配息率</th><th>高價上限</th><th>關注價</th><th>低價低限</th><th></th></tr></thead>
                 <tbody>
-                  {watch.map(w=>(
+                  {watchFiltered.map(w=>(
                     <tr key={w.code} style={{cursor:"pointer"}} onClick={()=>openKept(w.code)}>
                       <td>{w.name}</td>
                       <td>{w.code}</td>
+                      <td onClick={e=>e.stopPropagation()}>
+                        <select className="grpsel" value={grpOf(w)} onChange={e=>setGrp(w.code,e.target.value)}>
+                          {[...new Set([...grpList,"未分類"])].map(g=><option key={g} value={g}>{g}</option>)}
+                          <option value="__new__">＋新增群組…</option>
+                        </select>
+                      </td>
                       <td>{w.ts}</td>
                       <td>{w.snap.price!=null?fmt(w.snap.price,2):"—"}</td>
                       <td>{w.snap.eps!=null?fmt(w.snap.eps,2):"—"}</td>
@@ -820,7 +872,7 @@ function App(){
               </table>
             </div>
           )}
-          <div className="note">點列可開啟該檔股票。EPS／償債年數／折舊利益等為保留當下快照；掛牌年數隨時間更新。鍵盤 ← → 可切換上一檔／下一檔股票。</div>
+          <div className="note">點列可開啟該檔股票。EPS／償債年數等為保留當下快照；掛牌年數隨時間更新。保留時自動歸入目前選取的群組。看完一檔後會自動預抓前後檔資料，← → 切換更快。</div>
         </div>
       )}
 
