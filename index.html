@@ -750,7 +750,6 @@ function App(){
   const onKeepClick=()=>{
     if(!stock) return;
     if(isKept){ removeKeep(stock.code); setKeepMenu(false); return; }
-    if(!customGrps.length){ addKeep("未分類"); return; }
     setKeepMenu(m=>!m);
   };
   const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c) pick(c); };
