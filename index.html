@@ -64,6 +64,11 @@ button:disabled{opacity:.5;cursor:default}
 .scrf input{width:70px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12.5px;padding:4px 7px}
 .sortth{cursor:pointer;user-select:none;white-space:nowrap}
 .sortth:hover{color:var(--text)}
+.svband{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.svb{background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;text-align:center}
+.svb .k{font-size:12px;color:var(--dim);margin-bottom:4px}
+.svb .v{font-size:22px;font-weight:700}
+@media(max-width:700px){.svband{grid-template-columns:repeat(2,1fr)}}
 .keyhint{color:var(--dim);font-size:11.5px;border:1px solid var(--border);border-radius:5px;padding:2px 7px}
 @media (hover:none){.keyhint{display:none}}
 .pricetable tbody tr:hover td{background:rgba(255,255,255,0.03)}
@@ -518,6 +523,8 @@ function App(){
   const [err,setErr]=useState(null);
   const [judgePrice,setJudgePrice]=useState("");
   const [tab,setTab]=useState("info");
+  const [mode,setModeRaw]=useState(()=>{ try{return localStorage.getItem("twri-mode")||"detail";}catch(e){return "detail";} });
+  const setMode=mm=>{ setModeRaw(mm); try{localStorage.setItem("twri-mode",mm);}catch(e){} };
   const [fin,setFin]=useState(null);
   const [finLoading,setFinLoading]=useState(false);
   const [watch,setWatch]=useState(()=>{ try{return JSON.parse(localStorage.getItem("twri-watch"))||[];}catch(e){return[];} });
@@ -747,6 +754,17 @@ function App(){
     };
   },[model,jp]);
 
+  /* ===== 快速瀏覽模式：以今日收盤價算位階 ===== */
+  const lastOf=a=>{ if(!a) return null; for(let i=a.length-1;i>=0;i--) if(a[i]!=null) return a[i]; return null; };
+  const posLabel=p=>p==null?"":p<20?"低檔":p<40?"偏低":p<60?"中檔":p<80?"偏高":"高檔";
+  const posColor=p=>p==null?"var(--dim)":p<40?"#53c8f5":p<60?"#e8eef5":"#ff9f43";
+  const svPos=useMemo(()=>{
+    if(!model||!stock||stock.quote.close==null) return null;
+    const hi=model.rows.map(r=>r.hi).filter(v=>v!=null);
+    const lo=model.rows.map(r=>r.lo).filter(v=>v!=null);
+    return hi.length?positionOf(stock.quote.close,Math.min(...lo),Math.max(...hi)):null;
+  },[model,stock]);
+
   const yearsAgo=d=>{ if(!d||d.length<4) return "—"; const y=+d.slice(0,4),m=+d.slice(4,6)||1; return fmt((Date.now()-new Date(y,m-1).getTime())/3.15576e10,1); };
 
   /* ===== 保留股（觀察清單）===== */
@@ -906,6 +924,7 @@ function App(){
         <h1>台股估價河流圖</h1>
         <button className="watchbtn" onClick={()=>setWatchOpen(o=>!o)}>★ 保留股（{watch.length}）</button>
         <button className="watchbtn" onClick={()=>setScrOpen(o=>!o)}>⚙ 篩選</button>
+        <button className="watchbtn" onClick={()=>setMode(mode==="detail"?"screen":"detail")}>{mode==="detail"?"⚡ 快速瀏覽":"▦ 完整模式"}</button>
         <div className="searchwrap">
           <div className="searchbox">
             <div className="inputwrap">
@@ -1044,17 +1063,53 @@ function App(){
               <span className="keyhint">← → 切換股票</span>
             </div>
           </div>
-          <div className="tabs">
+          {mode==="detail"&&<div className="tabs">
             <button className={"tab"+(tab==="info"?" active":"")} onClick={()=>setTab("info")}>基本資訊</button>
             <button className={"tab"+(tab==="judge"?" active":"")} onClick={()=>setTab("judge")}>價格位階</button>
             <button className={"tab"+(tab==="charts"?" active":"")} onClick={()=>setTab("charts")}>河流圖</button>
             <button className={"tab"+(tab==="fin"?" active":"")} onClick={()=>setTab("fin")}>財務指標</button>
             <button className={"tab"+(tab==="table"?" active":"")} onClick={()=>setTab("table")}>詳細數據</button>
-          </div>
+          </div>}
         </React.Fragment>
       )}
 
-      {stock&&tab==="info"&&(
+      {stock&&mode==="screen"&&(
+        <div className="card">
+          <div className="cardtitle" style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+            <span>快速瀏覽</span>
+            <span style={{fontSize:12,color:"var(--dim)",fontWeight:400}} className="mono">
+              {browseList&&browseList.length?`第 ${Math.max(browseList.findIndex(c=>c.code===stock.code)+1,1)} / ${browseList.length} 檔`:""}
+            </span>
+          </div>
+          <div className="svband">
+            <div className="svb"><div className="k">高價上限</div><div className="v mono hiv">{model&&model.priceBand?fmt(model.priceBand.hiUp):"—"}</div></div>
+            <div className="svb"><div className="k">關注價</div><div className="v mono avgv">{model&&model.priceBand?fmt(model.priceBand.watch):"—"}</div></div>
+            <div className="svb"><div className="k">低價低限</div><div className="v mono lov">{model&&model.priceBand?fmt(model.priceBand.loDn):"—"}</div></div>
+            <div className="svb"><div className="k">目前位階（近{YEARS_BACK}年）</div><div className="v mono" style={{color:posColor(svPos)}}>{svPos!=null?fmt(svPos,0)+"%（"+posLabel(svPos)+"）":(loading?"載入中…":"—")}</div></div>
+          </div>
+          <div className="infogrid">
+            <div className="infoitem"><div className="k">每股盈餘（近四季）</div><div className="v mono">{model&&model.epsNow!=null?fmt(model.epsNow,2)+" 元":"—"}</div></div>
+            <div className="infoitem"><div className="k">每股淨值</div><div className="v mono">{model&&model.bvpsNow!=null?fmt(model.bvpsNow,1)+" 元":"—"}</div></div>
+            <div className="infoitem"><div className="k">本益比</div><div className="v mono">{model&&model.epsNow>0&&stock.quote.close!=null?fmt(stock.quote.close/model.epsNow,1):"—"}</div></div>
+            <div className="infoitem"><div className="k">股價淨值比</div><div className="v mono">{model&&model.bvpsNow>0&&stock.quote.close!=null?fmt(stock.quote.close/model.bvpsNow,2):"—"}</div></div>
+            <div className="infoitem"><div className="k">殖利率</div><div className="v mono">{model&&model.dpsNow!=null&&stock.quote.close>0?fmt(model.dpsNow/stock.quote.close*100,1)+"%":"—"}</div></div>
+            <div className="infoitem"><div className="k">去年配息率</div><div className="v mono">{model&&model.payoutLast!=null?fmt(model.payoutLast*100,1)+"%":"—"}</div></div>
+            <div className="infoitem"><div className="k">七年配息率</div><div className="v mono">{model&&model.payout7!=null?fmt(model.payout7*100,1)+"%":"—"}</div></div>
+            <div className="infoitem"><div className="k">業主盈餘（近四季）</div><div className="v mono">{finView&&lastOf(finView.oe)!=null?fmt(lastOf(finView.oe),2)+" 元":"—"}</div></div>
+            <div className="infoitem"><div className="k">折舊利益</div><div className="v mono">{finView&&finView.depPS!=null?fmt(finView.depPS,1)+" 元":"—"}</div></div>
+            <div className="infoitem"><div className="k">折舊年數</div><div className="v mono">{finView&&finView.depYears!=null?fmt(finView.depYears,2)+" 年":"—"}</div></div>
+            <div className="infoitem"><div className="k">償債年數</div><div className="v mono">{finView&&finView.debtYears!=null?fmt(finView.debtYears,2)+" 年":"—"}</div></div>
+            <div className="infoitem"><div className="k">防禦期</div><div className="v mono">{finView&&lastOf(finView.defensive)!=null?fmt(lastOf(finView.defensive),0)+" 天":"—"}</div></div>
+            <div className="infoitem"><div className="k">現金週期</div><div className="v mono">{finView&&lastOf(finView.ccc)!=null?fmt(lastOf(finView.ccc),0)+" 天":"—"}</div></div>
+            <div className="infoitem"><div className="k">掛牌年數</div><div className="v mono">{yearsAgo(stock.ipo)} 年</div></div>
+            <div className="infoitem"><div className="k">產業別</div><div className="v">{stock.ind}</div></div>
+            <div className="infoitem"><div className="k">資本額</div><div className="v mono">{stock.capital?fmt(stock.capital/1e5,1)+" 億":"—"}</div></div>
+          </div>
+          <div className="note">位階＝今日收盤價在近 {YEARS_BACK} 年最高／最低區間的位置{model&&model.finUsed?"；EPS／淨值採用財報實際值":""}。折舊／償債／防禦期／現金週期需個別公司財報，回補完成前部分股票為 —。← → 切換上一檔／下一檔，點右上「▦ 完整模式」看河流圖與完整財務指標。</div>
+        </div>
+      )}
+
+      {stock&&mode==="detail"&&tab==="info"&&(
         <div className="card">
           <div className="cardtitle">公司基本資料</div>
           <div className="infogrid">
@@ -1088,7 +1143,7 @@ function App(){
         </div>
       )}
 
-      {stock&&tab==="fin"&&(
+      {stock&&mode==="detail"&&tab==="fin"&&(
         finView?(
           <React.Fragment>
             <div className="cardtitle">獲利檢驗</div>
@@ -1222,7 +1277,7 @@ function App(){
         )
       )}
 
-      {stock&&tab==="table"&&(
+      {stock&&mode==="detail"&&tab==="table"&&(
         <React.Fragment>
           {model&&(
             <div className="card">
@@ -1394,7 +1449,7 @@ function App(){
         </div>
       )}
 
-      {model&&!loading&&tab==="judge"&&(
+      {model&&!loading&&mode==="detail"&&tab==="judge"&&(
           <div className="card">
             <div className="cardtitle">價格位階判斷（近 {YEARS_BACK} 年區間）</div>
             <div className="judge">
@@ -1418,7 +1473,7 @@ function App(){
           </div>
       )}
 
-      {model&&!loading&&tab==="charts"&&(
+      {model&&!loading&&mode==="detail"&&tab==="charts"&&(
         <React.Fragment>
           <div className="card" style={{padding:"12px 16px"}}>
             <div className="judge" style={{marginBottom:0}}>
