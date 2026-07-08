@@ -119,6 +119,13 @@ const sleep = ms => new Promise(r=>setTimeout(r,ms));
 const num = v => { if(v==null) return null; const n=parseFloat(String(v).replace(/,/g,"")); return isFinite(n)?n:null; };
 const fmt = (v,d=1) => v==null||!isFinite(v)?"—":v.toLocaleString("zh-TW",{minimumFractionDigits:d,maximumFractionDigits:d});
 const todayKey = () => new Date().toISOString().slice(0,10);
+/* 全市場快照的快取鍵：台北時間。14:00 前=前日收盤(a)；14–18 時每小時重抓一次(hN，等 TWSE 發佈今日收盤)；18 時後固定(b) */
+const snapKey = () => {
+  const t = new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Taipei"}));
+  const d = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
+  const h = t.getHours();
+  return `twri-snap-${d}-${h<14?"a":h<18?"h"+h:"b"}`;
+};
 
 const cacheGet = k => { try{ const s=localStorage.getItem(k); return s?JSON.parse(s):null; }catch(e){ return null; } };
 const cacheSet = (k,v) => { try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){ try{ Object.keys(localStorage).filter(x=>x.startsWith("twri-y-")).slice(0,50).forEach(x=>localStorage.removeItem(x)); localStorage.setItem(k,JSON.stringify(v)); }catch(e2){} } };
@@ -131,7 +138,7 @@ async function fetchJSON(url){
 
 /* ============ 資料層：全市場快照（每日一次） ============ */
 async function loadSnapshots(){
-  const key = "twri-snap-"+todayKey();
+  const key = snapKey();
   const c = cacheGet(key);
   if(c) return c;
   const [info,bwi,avg] = await Promise.all([
