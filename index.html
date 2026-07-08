@@ -44,7 +44,9 @@ button:disabled{opacity:.5;cursor:default}
 .stockhead .name{font-size:26px;font-weight:700}
 .stockhead .code{font-size:18px;color:var(--dim)}
 .stockhead .price{font-size:26px;font-weight:700;color:var(--gold)}
-.watchbtn{background:var(--panel2);border:1px solid var(--border);color:var(--gold);padding:9px 14px;font-size:14px}
+.watchbtn{background:var(--panel2);border:1px solid var(--border);color:var(--dim);padding:9px 14px;font-size:14px}
+.watchbtn.active{color:var(--gold);border-color:var(--gold)}
+.modebtns{display:flex;gap:6px}
 .keepbtn{background:var(--panel2);border:1px solid var(--border);color:var(--dim);padding:6px 12px;font-size:13px;border-radius:7px}
 .keepbtn.kept{color:var(--gold);border-color:var(--gold)}
 .keepbtn:disabled{opacity:0.45;cursor:default;filter:none}
@@ -924,7 +926,10 @@ function App(){
         <h1>台股估價河流圖</h1>
         <button className="watchbtn" onClick={()=>setWatchOpen(o=>!o)}>★ 保留股（{watch.length}）</button>
         <button className="watchbtn" onClick={()=>setScrOpen(o=>!o)}>⚙ 篩選</button>
-        <button className="watchbtn" onClick={()=>setMode(mode==="detail"?"screen":"detail")}>{mode==="detail"?"⚡ 快速瀏覽":"▦ 完整模式"}</button>
+        <div className="modebtns">
+          <button className={"watchbtn"+(mode==="screen"?" active":"")} onClick={()=>setMode("screen")}>⚡ 快速瀏覽</button>
+          <button className={"watchbtn"+(mode==="detail"?" active":"")} onClick={()=>setMode("detail")}>▦ 完整模式</button>
+        </div>
         <div className="searchwrap">
           <div className="searchbox">
             <div className="inputwrap">
@@ -1105,6 +1110,59 @@ function App(){
             <div className="infoitem"><div className="k">產業別</div><div className="v">{stock.ind}</div></div>
             <div className="infoitem"><div className="k">資本額</div><div className="v mono">{stock.capital?fmt(stock.capital/1e5,1)+" 億":"—"}</div></div>
           </div>
+          {finView&&(
+            <div className="charts" style={{marginTop:14}}>
+              {finView.hasDetail&&(
+                <QChart title="檢驗（一）公司真的賺錢嗎？（每股・近四季）" labels={finView.labels} unit="元" decimals={1}
+                  series={[
+                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,data:finView.oe},
+                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,data:finView.depCF},
+                    {name:"每股盈餘",color:"#8b98a9",data:finView.epsT},
+                  ]}/>
+              )}
+              {finView.hasBorrow&&(
+                <QChart title="檢驗（二）公司資金吃緊嗎？（億）" labels={finView.labels} unit="" decimals={0}
+                  series={[
+                    {name:"短期借款",color:"#ffd54a",bar:true,data:finView.stbB},
+                    {name:"長期借款",color:"#4ade80",bar:true,data:finView.ltbB},
+                    {name:"借款總額",color:"#c2410c",data:finView.borrowB},
+                    {name:"稅後純益",color:"#53c8f5",data:finView.niB},
+                  ]}/>
+              )}
+              {finView.stack.some(s=>s)&&(
+                <StackChart title="檢驗（三）公司獲利轉換成何種資產？（億）" labels={finView.labels}
+                  series={[
+                    {name:"固定資產",color:"#2f7d5b",data:finView.stack.map(s=>s?s.ppe:0)},
+                    {name:"長期投資",color:"#1e3a8a",data:finView.stack.map(s=>s?s.lti:0)},
+                    {name:"存貨",color:"#65a30d",data:finView.stack.map(s=>s?s.inv:0)},
+                    {name:"應收帳款",color:"#7f1d1d",data:finView.stack.map(s=>s?s.ar:0)},
+                    {name:"現金",color:"#2563eb",data:finView.stack.map(s=>s?s.cash:0)},
+                    {name:"其他",color:"#374151",data:finView.stack.map(s=>s?s.other:0)},
+                  ]}/>
+              )}
+              {finView.hasNonop&&(
+                <QChart title="檢驗（四）公司獲利來源？（近四季・億）" labels={finView.labels} unit="" decimals={0}
+                  series={[
+                    {name:"本業（營業利益）",color:"#53c8f5",bar:true,data:finView.opB},
+                    {name:"業外收支",color:"#ff9142",bar:true,data:finView.nonopB},
+                  ]}/>
+              )}
+              {finView.hasNonop&&(
+                <QChart title="檢驗（五）業外投資比本業好嗎？（近四季）" labels={finView.labels} unit="%"
+                  series={[
+                    {name:"業外投資報酬率",color:"#8b98a9",data:finView.outsideRet},
+                    {name:"股東權益報酬率",color:"#53c8f5",data:finView.roe},
+                  ]}/>
+              )}
+              {model&&(
+                <QChart title="檢驗（六）公司獲利能與股東分享嗎？（年）" labels={model.rows.map(r=>String(r.year-1911))} unit="" decimals={1}
+                  series={[
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:model.rows.map(r=>r.dps??null)},
+                    {name:"現金配息率（%）",color:"#ff9142",data:model.rows.map(r=>(r.dps!=null&&r.eps>0)?r.dps/r.eps*100:null)},
+                  ]}/>
+              )}
+            </div>
+          )}
           <div className="note">位階＝今日收盤價在近 {YEARS_BACK} 年最高／最低區間的位置{model&&model.finUsed?"；EPS／淨值採用財報實際值":""}。折舊／償債／防禦期／現金週期需個別公司財報，回補完成前部分股票為 —。← → 切換上一檔／下一檔，點右上「▦ 完整模式」看河流圖與完整財務指標。</div>
         </div>
       )}
