@@ -302,6 +302,8 @@ def run_dividends(y1, y2):
 
 
 def fetch_detail(co_id, year, season):
+    """回傳 (status, data)。status: "ok"=有資料 / "empty"=確定查無報表（永久記錄）
+    / "blocked"=疑似被 MOPS 擋或回異常頁（不記錄進度，之後重試）。"""
     url = (f"{BASE}/server-java/t164sb01?step=1&CO_ID={co_id}"
            f"&SYEAR={year}&SSEASON={season}&REPORT_ID=C")
     r = SESSION.get(url, timeout=45)
@@ -309,11 +311,14 @@ def fetch_detail(co_id, year, season):
     r.encoding = r.apparent_encoding or "big5"
     text = r.text
     if "查無" in text or "無應編製" in text:
-        return None
+        return "empty", None
+    low = text.lower()
+    if len(text) < 3000 or "overrun" in low or "頻繁" in text or "稍後再試" in text:
+        return "blocked", None
     try:
         tables = pd.read_html(io.StringIO(text))
     except ValueError:
-        return None
+        return "blocked", None
     found = {}
     for df in tables:
         if df.shape[1] < 2:
@@ -343,7 +348,10 @@ def fetch_detail(co_id, year, season):
                         break
                 if val is not None:
                     found[key] = val
-    return found or None
+    if found:
+        return "ok", found
+    # 頁面像正式報表（夠大、有表格）但關鍵字全沒中：多為特殊行業格式，視為確定無資料
+    return ("empty", None) if len(text) > 20000 else ("blocked", None)
 
 
 # ═══════════════════════════════════════════
@@ -414,6 +422,7 @@ def run_bulk(year, season):
 def run_detail(codes, quarters, limit):
     done = load_progress()
     count = 0
+    blocked_streak = 0
     for code in codes:
         for (y, s) in quarters:
             key = [code, y, s]
@@ -424,14 +433,33 @@ def run_detail(codes, quarters, limit):
                 print(f"[detail] 已達本次上限 {limit}，進度已存檔，下次自動續傳")
                 return count
             try:
-                d = fetch_detail(code, y, s)
+                status, d = fetch_detail(code, y, s)
             except Exception as e:
                 print(f"[detail] {code} {y}Q{s} 失敗：{e}（下次重試）")
-                polite_sleep(3)
+                blocked_streak += 1
+                if blocked_streak >= 15:
+                    save_progress(done)
+                    print("[detail] 連續 15 次失敗，MOPS 可能封鎖中，中止本輪（進度已存檔，稍後再跑）")
+                    return count
+                polite_sleep(5)
                 continue
+            if status == "blocked":
+                blocked_streak += 1
+                print(f"[detail] {code} {y}Q{s} 被擋/異常頁（不記錄，下次重試）")
+                if blocked_streak >= 15:
+                    save_progress(done)
+                    print("[detail] 連續 15 次被擋，MOPS 可能封鎖中，中止本輪（進度已存檔，稍後再跑）")
+                    return count
+                if blocked_streak % 5 == 0:
+                    print("[detail] 連續被擋，暫停 90 秒降溫…")
+                    time.sleep(90)
+                else:
+                    polite_sleep(5)
+                continue
+            blocked_streak = 0
             done.add(tuple(key))
             count += 1
-            if d:
+            if status == "ok":
                 obj = load_stock(code)
                 obj["q"].setdefault(qkey(y, s), {}).update(d)
                 save_stock(obj)
