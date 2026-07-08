@@ -107,12 +107,23 @@ worker.js（Worker 原始碼備份）
 ## 交接時狀態（2026-07-09 00:05）
 
 - ✅ v8 全部部署：快速瀏覽/完整雙模式、六檢驗圖、全市場篩選、當日收盤（Worker /today）、bundle 失敗不快取＋前端自動重試、折線跨缺口、位階修正、股利圖合併、借款折線
-- 🔄 **detail 回補進行中**：本機 caffeinate 過夜跑（約至 2496+，剩 ~2萬筆 ≈ 11hr），workflow 目前 **Disabled**
+- 🛑 **detail 爬蟲路線終止（Dale 決定）**：改走 XBRL 主資料源（待辦 4.），已回補的資料保留。workflow **Disabled**
 - ⏳ 待辦（依序）：
-  1. **明早收尾**：`--build-screen` → add data → commit → `pull --rebase -X theirs` → push → **Enable workflow**（若沒跑完由 Actions 接力）
-  2. **全部回補完成後跑 `--retry-missing 2018 2026 --limit 30000`**（跑前 Disable、跑完 push + Enable）——撈回假性無資料（pipeline 已有三態判定：ok/empty/blocked，blocked 不記錄進度＋連擋自動降溫/中止，之後不再產生新誤記）
+  1. **收尾（detail 爬蟲最後一批）**：`--build-screen` → add data → commit → `pull --rebase -X theirs` → push。**workflow 保持 Disabled**（detail cron 已無必要；每季 --update 的去留於 XBRL 建庫後決定）
+  2. ~~retry-missing~~（已由 XBRL 路線取代，見 4.）。detail 爬蟲已停、workflow 維持 **Disabled**；既有 data/fin 爬蟲資料保留作 XBRL 交叉驗證
   3. **歷史價格落地（Dale 已同意，高優先，在上櫃支援之前做）**：河流圖九年資料改為靜態檔，根治快速瀏覽被 TWSE 限流問題。設計：pipeline 新增價格模式（抓 FMSRFK 逐月高低均＋BWIBBU 年末 PE/PB/殖利率，精簡欄位）→ `data/price/{code}.json`（全市場約數十 MB）；Actions 每月更新當月；前端 loadHistory 歷史年讀靜態檔、當年當月仍即時（quote/bundle）、/bundle 降級為 fallback。一次回補約 1078 檔×~19 請求，本機或 Actions 跑數小時。
-  4. **XBRL 財報稽核層（已驗證可行，2026-07-09 凌晨用 2313 華通 2026Q1 原型對帳：10/10 欄位與爬蟲完全一致）**：MOPS「案例文件整批下載」有 102 年起每季全公司包（Dale 已確認頁面存在）。檔案為 inline XBRL（XHTML＋`ix:nonFraction`），檔名 `tifrs-fr1-m1-{行業}-{cr|er}-{代號}-{YYYYQn}.html`，取 cr（合併）。**已驗證的解析規則**：期間 context＝檔內最大 `From..To..`；時點 context＝`AsOf{期間結束日}`；值處理＝去逗號、`sign="-"` 取負、×10^scale、**÷1000 換千元**；capex 取正值後轉負。欄位對照（一般業）：inv=`ifrs-full:Inventories`、ar=`tifrs-bsci-ci:AccountsReceivableNet`、ap=`ifrs-full:TradeAndOtherCurrentPayablesToTradeSuppliers`、ppe=`ifrs-full:PropertyPlantAndEquipment`、cash_bs=`ifrs-full:CashAndCashEquivalents`、stb=`ifrs-full:ShorttermBorrowings`、ltb=`ifrs-full:LongtermBorrowings`、lti=`ifrs-full:InvestmentsAccountedForUsingEquityMethod`、dep=`ifrs-full:AdjustmentsForDepreciationExpense`、ocf=`ifrs-full:CashFlowsFromUsedInOperatingActivities`、capex=`ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities`。待辦（適合 Claude Code 專案）：整包 zip 掃描、金融/證券行業 taxonomy 變體、107–108 舊版 taxonomy 抽驗、與 data/fin 逐季比對報告（缺漏補、出入以 XBRL 為準）。
+  4. **XBRL 主資料源建庫（路線已定：取代 detail 爬蟲，Dale 決定不再掛機爬）**。已驗證（2313 華通 2026Q1 原型：10/10 欄位與爬蟲一致）。範圍：**整批包含全部申報公司（上市＋上櫃同包）**，且檔內含完整三大報表——不只 11 個 detail 欄位，rev/gp/op/nonop/ni/eps/assets/liab/eq/ca/cl/bvps 也可一併取得，等於 bulk＋detail＋上櫃財報一次到位。
+     - 來源：MOPS 常用報表→財務報表→「案例文件整批下載」，102 年起每季一包（Dale 負責下載 107Q1–115Q1 共 33 包，數 GB，放同一資料夾）
+     - 檔案：inline XBRL（XHTML＋`ix:nonFraction`），檔名 `tifrs-fr1-m1-{行業}-{cr|er}-{代號}-{YYYYQn}.html`，優先 cr（合併）、無 cr 用 er
+     - **解析規則（已驗證＋一個關鍵修正）**：
+       - 期間 context：**必須取 `From{年}0101To{季末}`（YTD）**——Q2/Q3 檔內同時有單季 context（如 From0401To0630），只按結束日取 max 會選錯；data/fin 慣例是 YTD，前端 finQuarters() 負責拆單季
+       - 時點 context：`AsOf{期間結束日}`（避開股本異動等其他 AsOf）
+       - 值：去逗號、`sign="-"` 取負、×10^scale、**÷1000 換千元**；capex 取得後轉負
+     - 欄位對照（一般業）：inv=`ifrs-full:Inventories`、ar=`tifrs-bsci-ci:AccountsReceivableNet`、ap=`ifrs-full:TradeAndOtherCurrentPayablesToTradeSuppliers`、ppe=`ifrs-full:PropertyPlantAndEquipment`、cash_bs=`ifrs-full:CashAndCashEquivalents`、stb=`ifrs-full:ShorttermBorrowings`、ltb=`ifrs-full:LongtermBorrowings`、lti=`ifrs-full:InvestmentsAccountedForUsingEquityMethod`、dep=`ifrs-full:AdjustmentsForDepreciationExpense`、ocf=`ifrs-full:CashFlowsFromUsedInOperatingActivities`、capex=`ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities`；彙總欄位元素名待 Claude Code 專案時從檔內確認（Revenue/GrossProfit/ProfitLoss/BasicEarningsLossPerShare/Assets/Liabilities/Equity/CurrentAssets/CurrentLiabilities 系列）
+     - 產出：直接寫入/覆寫 `data/fin/{code}.json` 的 q 欄位（既有爬蟲資料當交叉驗證，出入以 XBRL 為準並輸出差異報告）；跑完 `--build-screen`
+     - 注意：金融/證券/保險 taxonomy 前綴不同（ar/ap 等元素名有變體）；107–108 舊版 taxonomy 抽驗；興櫃/公開發行公司也在包內（無害，可全收或以快照清單過濾）
+     - **爬蟲保留的角色**：股利分派（t05st09sub，一年一請求，上櫃加 TYPEK=otc）；每季例行更新方式待定（手動載新一季 zip 跑解析 vs 保留 Actions --update 爬單季）
+     - fin_progress.json 與每 4 小時 detail cron 於 XBRL 建庫完成後退役；--retry-missing 不再需要
   5. **上櫃（TPEX）支援（高優先）**。分四階段，每階段端點先請 Dale 跑 probe 貼輸出：
      - (a) MOPS 財報/股利：pipeline 的 bulk/dividends 加 `TYPEK=otc` 跑一輪（t164sb01 個別報表不分市場，detail 直接沿用）；上櫃約 800 檔 ×33 季 ≈ 2.6 萬季 detail，**等上市 retry 完再開跑**
      - (b) 公司清單/每日快照：TPEX openapi（www.tpex.org.tw/openapi/v1/，如 tpex_mainboard_quotes、公司基本資料集），欄位名與 TWSE 不同，前端 loadSnapshots 合併兩市場、公司物件加 market 欄位
