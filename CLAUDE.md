@@ -1,163 +1,126 @@
 # CLAUDE.md — tw-river 台股估價河流圖
 
-> 交接檔。新對話請先完整讀完本檔再動手。本專案於 2026-07-08 凌晨由 Excel 工具（Investment decision tool.xls）網頁化而來，一夜完成 v1–v6；07-08 上午完成 v7（保留股系統＋鍵盤瀏覽＋預抓＋版面調整）。
+> 交接檔。新對話請先完整讀完本檔再動手。2026-07-08 凌晨由 Excel 工具網頁化（v1–v6），同日白天 v7（保留股＋鍵盤瀏覽＋預抓），晚間 v8（快速瀏覽模式＋全市場篩選＋當日收盤＋多項資料源修正）。
 
 ## 專案定位
 
-取代 Dale 原本的 Excel 股票估價工具（依賴付費資料源、需每季手動更新數千個 .xls，已無法更新）。核心功能：股號/股名搜尋 → 公司基本資訊 → 河流圖（股價/本益比/淨值比/殖利率）＋輸入股價判斷位階 → 財報檢驗圖 → 詳細數據表 → 保留股（觀察清單，含群組）＋ ← → 鍵逐檔瀏覽。資料全自動更新，無本地資料庫。
+取代 Dale 原本的兩檔 Excel 系統：screen.xls（快速瀏覽＋保留股＋篩選總表）與 Investment decision tool.xls（估價引擎＋六張檢驗圖）。網頁以**兩種模式**呈現：「⚡ 快速瀏覽」＝screen.xls 體驗（一頁指標＋六檢驗圖、←→ 連發逛）；「▦ 完整模式」＝五分頁完整分析。資料全自動更新，無本地資料庫。
 
 - 網站：https://dale199707.github.io/tw-river/
-- Repo：github.com/dale199707/tw-river（本機 clone 在 `~/Desktop/tw-river-repo`）
-- Worker：https://tw-river-api.dale199707.workers.dev（Cloudflare，帳號同 abx-guide 的 abx-api）
-- 原始 Excel 系統三檔：control.xls（股號清單）→ screen.xls（調度＋瀏覽＋保留股）→ Investment decision tool.xls（估價引擎）。screen.xls 已解析過：方向鍵瀏覽靠 `Worksheet_SelectionChange` 監聽 B4、保留股為按下當時的指標快照——v7 的網頁版即依此重現。
+- Repo：github.com/dale199707/tw-river（本機 clone `~/Desktop/tw-river-repo`）
+- Worker：https://tw-river-api.dale199707.workers.dev（**worker.js 已備份於 repo 根目錄**，改動需手動貼到 Cloudflare Edit code → Deploy）
 
 ## 架構總覽
 
 ```
 index.html（單檔 React 18 UMD + Babel 7.26.4 classic，繁中 UI，GitHub Pages）
-├─ 即時報價/清單 ──→ Cloudflare Worker /openapi/* ──→ openapi.twse.com.tw
-├─ 歷年價格/本益比 ─→ Worker /bundle（一次打包9年，邊緣快取）─→ www.twse.com.tw/rwd
-└─ 財報/股利 ──────→ 同源靜態 data/fin/{code}.json（GitHub Actions 每季更新）
+├─ 快照（公司/PE/PB/殖利率/收盤）→ Worker /openapi/* → openapi.twse.com.tw（僅前一交易日）
+├─ 當日收盤 ────→ Worker /today（CSV 解析正規化）→ www.twse.com.tw STOCK_DAY_ALL
+├─ 歷年價格/本益比 → Worker /bundle（9年打包，邊緣快取，失敗不快取）→ www.twse.com.tw/rwd
+├─ 財報/股利 ───→ 同源靜態 data/fin/{code}.json
+└─ 篩選彙總 ───→ 同源靜態 data/screen.json（pipeline build_screen 產生）
 
-pipeline/fetch_mops.py（Python，MOPS 爬蟲）
-.github/workflows/findata.yml（每季更新 + 每4小時 detail 回補直到完成）
-worker.js（Worker 原始碼備份，實際部署在 Cloudflare dashboard 手動貼上）
+pipeline/fetch_mops.py（MOPS 爬蟲 + build_screen + retry_missing）
+.github/workflows/findata.yml（每季更新 + 每4小時 detail 回補）
+worker.js（Worker 原始碼備份）
 ```
 
-## 檔案結構
+## 資料來源與端點（含踩坑，依重要度排序）
 
-```
-index.html                      前端全部（~75KB，唯一前端檔）
-worker.js                       Worker 程式碼（改動需手動貼到 Cloudflare Edit code → Deploy）
-pipeline/fetch_mops.py          MOPS 資料管線
-.github/workflows/findata.yml   排程
-data/fin/{code}.json            每檔股票財報+股利（單行 compact JSON）
-data/fin_progress.json          detail 回補進度（[code, year, season] 陣列，斷點續傳）
-CLAUDE.md                       本交接檔
-```
+### 重大踩坑（v8 修過的）
+1. **openapi.twse.com.tw 只有前一交易日資料**——「今日收盤」必須走 www.twse.com.tw 的 rwd 盤後端點。
+2. **rwd `STOCK_DAY_ALL?response=json` 實際回 CSV**（民國年日期、收盤=第9欄、千分位、response 參數被無視）。Worker `/today` 在伺服器端解析正規化為 `{date:"YYYYMMDD",n,close:{代號:收盤}}`，**資料日期＝今天（台北）才進邊緣快取**，未發佈時 no-store。前端 `loadToday()` 在快照載入後覆蓋 `quotes[].close`。行為：收盤後約 15–17 時起顯示當日收盤，之前為前一交易日（盤中即時價需另接 mis.twse.com.tw，未做）。
+3. **TWSE 會對 Cloudflare 出口限流**（快速連逛數百檔觸發）。`/bundle` 原本不分成敗都快取 6 小時 → 空包中毒整天。已修：任一子請求失敗 → **不進當日快取**、回 no-store（成功的子 URL 各自保留快取，重試只補失敗）；bundleKey 已升 `v2`。前端 `loadHistory` 另有**自動重試 3 次**（1.5s/3s 退避）。
+4. **MOPS 個別報表偶發失敗會被永久記成「無資料」**（連鴻海都有零星缺季）。pipeline `--retry-missing Y1 Y2` 掃「進度標完成但 fin json 該季無任何 detail 欄位」者，自進度移除重抓。**須等 detail 全部回補完、且 MOPS 冷卻後再跑**。
+5. Worker 有全域 try/catch，任何例外回 JSON `{error:"worker exception",message,stack}` 而非 1101，除錯直接看回應。
 
-## 資料來源與端點（含踩坑紀錄）
+### TWSE（經 Worker）
+- `/openapi/v1/opendata/t187ap03_L` 公司基本資料、`BWIBBU_ALL` PE/PB/殖利率、`STOCK_DAY_AVG_ALL` 收盤/月均（皆 D-1）
+- Worker `/bundle?stockNo=&from=&to=`：FMSRFK×9年＋BWIBBU，6個一批間隔250ms
+- Worker `/today`：當日全市場收盤（見上）
+- Worker 通用轉發 `/openapi/`、`/rwd/` 邊緣快取 6h（TTL_SHORT）
 
-### TWSE（經 Worker 代理，瀏覽器端使用）
-- `openapi.twse.com.tw` **沒有開 CORS**（曾誤判，已用 Worker 解決）
-- `/openapi/v1/opendata/t187ap03_L` 公司基本資料（每日快取 localStorage）
-- `/openapi/v1/exchangeReport/BWIBBU_ALL` 當日本益比/淨值比/殖利率
-- `/openapi/v1/exchangeReport/STOCK_DAY_AVG_ALL` 收盤/月均價
-- `/rwd/zh/afterTrading/FMSRFK?date={Y}0101&stockNo={code}` 單一年度逐月最高/最低/均價
-- `/rwd/zh/afterTrading/BWIBBU?date={Y}{MM}01&stockNo={code}` 單月逐日 PE/PB/殖利率
-- Worker `/bundle?stockNo=&from=&to=`：伺服器端分批並行抓 FMSRFK×9年＋BWIBBU（過去年度12月、當年度最近兩月），邊緣快取（歷史7天/當年6h），瀏覽器一個請求搞定。TWSE 有流量限制，Worker 內 6 個一批、間隔 250ms。
+### MOPS（pipeline，mopsov.twse.com.tw）
+- 彙總表 `ajax_t163sb04`（損益，YTD）/`ajax_t163sb05`（資產負債，時點）：payload `...TYPEK=sii&year={民國}&season={01-04}`
+- 個別報表 `server-java/t164sb01?step=1&CO_ID=&SYEAR=&SSEASON=&REPORT_ID=C`：inv/ar/ap/ppe/cash_bs/stb/ltb/lti/dep/ocf/capex（capex 負值；現金流量為累計）
+- 股利 `t05st09sub?step=1&TYPEK=sii&YEAR={民國}`：**必須先 POST `ajax_t05st09_new` 暖機**＋帶 Referer，資料散在 ~87 張小表
+- 編碼：宣告 ISO-8859-1 實際 Big5，`r.encoding=r.apparent_encoding`；`pd.read_html` 需 html5lib+beautifulsoup4；項目名稱整列掃描+startswith+EXCLUDE_ROW；損益/現金流量 YTD 由前端 `finQuarters()` de-cumulate
 
-### MOPS（pipeline 使用，`mopsov.twse.com.tw` 舊版域名，2026 仍有效）
-- **彙總表**（POST，一請求=全上市公司一季）：
-  - `mops/web/ajax_t163sb04` 損益彙總 → rev/gp/op/nonop/ni/eps（**年初至當季累計**）
-  - `mops/web/ajax_t163sb05` 資產負債彙總 → assets/liab/eq/ca/cl/bvps（期末時點）
-  - payload：`encodeURIComponent=1&step=1&firstin=1&off=1&isQuery=Y&TYPEK=sii&year={民國}&season={01-04}`
-- **個別公司三大報表**（GET，一請求=一檔一季）：
-  - `server-java/t164sb01?step=1&CO_ID={code}&SYEAR={西元}&SSEASON={1-4}&REPORT_ID=C`
-  - 抓取項目：inv 存貨、ar 應收帳款、ap 應付帳款、ppe 不動產廠房設備、cash_bs 現金、stb 短期借款、ltb 長期借款、lti 採用權益法之投資、dep 折舊費用、ocf 營業活動現金流、capex 取得不動產廠房設備（**負值=流出**；現金流量項目為累計）
-- **股利分派**（GET，一請求=全上市公司一年度）：
-  - `server-java/t05st09sub?step=1&TYPEK=sii&YEAR={民國}`
-  - ⚠️ **必須先暖機**：先 POST 一次 `ajax_t05st09_new` 建立 session cookie，且請求要帶 `Referer: {BASE}/mops/web/t05st09_new`，否則只回 3KB 查詢表單頁
-  - 資料分散在 ~87 張小表，需全部掃描；代號與名稱同一欄（"2330 台積電"）
+### 做不到：營業項目占比、員工數（付費源/年報）；**董監持股率**（Dale 想要，需接 MOPS 董監持股資料集，pipeline 未做，列待辦）
 
-### MOPS 踩坑（重要）
-1. **編碼**：頁面宣告 ISO-8859-1 實際 Big5，一律用 `r.encoding = r.apparent_encoding`
-2. `pd.read_html` 需要 `html5lib` + `beautifulsoup4`（lxml 對 MOPS 頁面會 fallback）；workflow 已含
-3. 財報項目名稱不一定在第一欄（會計代碼欄在前），解析採整列掃描 + `startswith` 關鍵字 + `EXCLUDE_ROW`（排除 合計/總計/週轉）
-4. 損益/現金流量為 YTD 累計，**單季值由前端 de-cumulate**（`finQuarters()`，Q1 原值、Qn = YTD(n)−YTD(n−1)）；資產負債為時點值不用處理
+## data 檔案結構
 
-### 做不到的資料（已明確告知 Dale）
-- 營業項目占比（晶圓88.53% 那種產品營收結構）— 付費資料源才有
-- 員工人數/生產力 — 年報資料，MOPS ESG 資料集只有近年，未做
-
-## data/fin/{code}.json 結構
-
-```json
-{"code":"2330","updated":"2026-07-08",
- "q":{"2024Q4":{"rev":…,"gp":…,"op":…,"nonop":…,"ni":…,"eps":…,
-      "assets":…,"liab":…,"eq":…,"ca":…,"cl":…,"bvps":…,
-      "inv":…,"ar":…,"ap":…,"ppe":…,"cash_bs":…,"stb":…,"ltb":…,"lti":…,
-      "dep":…,"ocf":…,"capex":…}},
- "div":[{"p":"113年 第4季","cash":4.50002,"stock":0},…]}
-```
-金額單位千元、eps/股利為元、capex 為負。損益/現金流量欄位是 YTD。
+- `data/fin/{code}.json`：`{"code","updated","q":{"2024Q4":{rev,gp,op,nonop,ni,eps,assets,liab,eq,ca,cl,bvps,inv,ar,ap,ppe,cash_bs,stb,ltb,lti,dep,ocf,capex}},"div":[{p,cash,stock}]}`（千元、eps/股利=元、損益/現金流量=YTD）
+- `data/screen.json`：`{"updated","rows":[{c,q,debt,dep}]}`。償債年數=(最新季stb+ltb)/近4季單季ni合計（ni 來自彙總表全市場都有）；折舊年數=最新季ppe/近4季單季dep合計（需 detail）。近4季任一季算不出單季值→null。`--detail-backfill`/`--update`/`--retry-missing` 結尾自動重建。
+- `data/fin_progress.json`：detail 進度 [code,year,season]，斷點續傳
 
 ## 前端（index.html）重點
 
-- 分頁：基本資訊｜價格位階｜河流圖｜財務指標｜詳細數據
-- **財報優先原則**：`data/fin/{code}.json` 存在時，河流圖與估價表的 EPS/淨值自動改用財報真值（`model.finUsed` 旗標，換算基準註記「EPS／淨值採用財報實際值」）；否則退回「收盤價÷本益比」回推
-- 圖表元件：`RiverChart`（河流圖，殖利率圖 `invert` 軸反轉）、`QChart`（季線圖，`bar:true` 畫柱、**`hover` 屬性啟用滑鼠/點擊顯示逐柱數值**，目前僅「現金股利（每次發放）」開啟）、`StackChart`（資產堆疊面積）
-- 股價輸入（judgePrice）在「價格位階」與「河流圖」共用同一 state 即時連動
-- **版面**：`.charts` 格線 minmax(350px,1fr)（財務指標在 1200px 頁寬下一列三張）；河流圖容器 `charts river`（固定兩欄、max-width 940 置中，≤760px 一欄）
+- **模式**：`mode` state（localStorage `twri-mode` 記住），topbar 兩顆獨立按鈕（active 金色）。detail=五分頁；screen=快速瀏覽卡（見下）。五個分頁內容條件都有 `mode==="detail"&&` 閘。
+- **快速瀏覽卡**：右上「第 N / 總數 檔」；svband 四大格（高價上限/關注價/低價低限/目前位階）；infogrid 指標（EPS、淨值、PE、PB、殖利率、去年/七年配息率、業主盈餘、折舊利益、折舊年數、償債年數、防禦期、現金週期、掛牌年數、產業、資本額）；六張檢驗圖（一~六，複用 finView/model 同 scope 的 QChart/StackChart 設定）。
+- ⚠️ **positionOf 回傳 0–1 不是 0–100**！顯示要 ×100（svPos 曾因此把 97% 顯示成 1%，已修）。位階顏色 posColor/標籤 posLabel 吃 0–100。
+- **股利圖**（財指分頁＋檢驗六共用設計）：「每次發放」柱狀＋**年度配息率折線**（payoutByRocY：該年 cash 合計÷該年 eps，同年各次發放共用值）。原「(年)」圖已移除。配息率與股利共用 Y 軸（已知柱偏矮，Dale 未再反應；要雙軸需擴充 QChart）。
+- **資金吃緊圖**：短借/長借為折線（不是柱）。
+- **QChart 折線跨 null 缺口相連**（connectNulls 行為）——detail 缺季不再讓圖碎裂。`hover` 屬性=滑鼠/點擊顯示逐柱數值（股利發放圖啟用）。
+- **保留股**：`twri-watch`（含 grp 群組），☆ 按下一律彈群組選單（未分類/自訂/＋新增）；面板群組 chips 篩選＋每列 select 改組；saveWatch 失敗→清 twri-y 快取重試→再失敗 alert。
+- **← → 瀏覽**：全市場代號序循環；「僅在保留股間切換」跟著群組篩選；input 聚焦不觸發；背景預抓 [+1,+2,−1] 檔。
+- **篩選面板**：載 data/screen.json；折舊/償債年數 ≤n 條件（AND，null 自動排除）、欄名點擊升降冪、點列開股票、>300 檔截斷提示。
+- **快照快取鍵 `snapKey()`**：台北時間，<14時=a、14–18時=h{hh}（每小時重抓等當日收盤）、≥18時=b；舊鍵自動清。
+- **loadFin 有 finMem 記憶體快取**（404 也快取 null，網路錯誤不快取）。
+- 搜尋框 ✕ 清除鈕；`loading||finLoading` 時保留鈕反灰。
 
-### v7 新增：保留股系統（重現 screen.xls）
-- **localStorage 快取鍵**：`twri-snap-{date}` 全市場每日快照（載入時清舊日期）、`twri-y-{code}-{year}` 年度資料（歷史永久、當年當日）、**`twri-watch` 保留股清單**
-- `twri-watch` 結構：`[{code,name,ts:"YYYY-MM-DD",grp:"群組名",snap:{price,eps,ipoY,debtY,depPS,depY,payout,hiUp,watchP,loDn}}]`。snap 為**保留當下的快照**（同 Excel 行為）；掛牌年數存原始 ipo 日期、顯示時即時換算。舊資料無 grp 一律視為「未分類」（`grpOf()`）
-- **保留鈕**：股名旁「☆ 保留」，載入中（`loading||finLoading`）反灰顯示「載入中…」。按下**一律彈出群組選單**（自訂群組＋未分類＋「＋新增群組…」prompt 建新群組）。已保留按「★ 已保留」直接取消。切換股票時選單自動關閉
-- **群組**：從股票身上衍生（無獨立儲存），最後一檔移走群組即消失。面板有群組 chips 篩選＋每列 `<select>` 改群組
-- **保留股面板**：topbar「★ 保留股（n）」展開；點列開啟該股、✕ 移除
-- **`saveWatch` 防禦**：寫入失敗（配額滿）→ 清全部 `twri-y-*` 快取重試 → 再失敗 alert 明確警告（無痕模式等）。**絕不默默吞錯**——曾因此造成保留股「消失」
-- **鍵盤 ← → 逐檔瀏覽**：全上市照代號循環；游標在 input 時不觸發；「僅在保留股間切換」勾選框**跟著群組篩選走**。手機不支援（已知，Dale 接受），`@media(hover:none)` 隱藏提示
-- **背景預抓**：當前股票載完後循序預抓 下一檔×2＋上一檔 的 bundle＋fin（寫進快取），← → 切換幾乎即開。切換股票時取消排隊。要加快可改 `[1,2,-1]` 陣列
-- **`loadFin` 有 session 記憶體快取**（`finMem` Map；404 也快取 null，網路錯誤不快取）
-- 搜尋框有 ✕ 清除鈕（`.inputwrap`/`.clrbtn`）
+## 關鍵公式（與 2024 年版 Excel 驗收通過：2330 現金週期/業主盈餘/配息率/防禦期）
 
-## 關鍵公式（與 Excel 核對過）
-
-- 估價表 band（近3年）：高價上限/低限＝3年「年度最高X」max/min；**關注價＝3年年度最高值的平均**（股價、本益比列與 Excel 完全吻合；淨值比/殖利率列的關注價 Excel 演算法未完全反推出來，現用同邏輯近似——已知差異）
-- 位階 %：輸入價換算之 PE/PB/殖利率在近9年 band 內的位置（殖利率反向），<20% 低檔…>80% 高檔
-- 業主盈餘（真實盈餘）＝(近4季 ni＋dep−|capex|)×1000/股數；股數＝實收資本額/10
-- 折舊利益＝近4季 dep×1000/股數；折舊年數＝ppe/近4季dep；償債年數＝(stb+ltb)/近4季ni
-- 防禦期＝(cash_bs+ar)/日均營運支出，日均支出＝(近4季營業成本+營業費用−折舊)/365；營業成本=rev−gp、營業費用=gp−op
-- 現金週期＝存貨天數+應收天數−應付天數（天數用單季×90）
-- 業外投資報酬率＝近4季 nonop/(lti，無則 eq)
-- 歷年 EPS/BVPS/DPS（無財報檔時）＝該年12月均價÷月均 PE/PB、×殖利率 回推
-- **驗收已通過**（2026-07-08，2330 對 2024 年版 Excel）：現金週期、業主盈餘、配息率、防禦期曲線皆吻合。注意 Excel 值是其資料截止時的快照，對數字要對到同一季
+- band（近3年）：高價上限/低限＝年度最高的 max/min；關注價＝年度最高平均（淨值比/殖利率列與 Excel 有已知小差異）
+- 位階＝價格換算指標在近9年 band 的位置（殖利率反向）
+- 業主盈餘＝(近4季ni+dep−|capex|)×1000/股數；股數＝實收資本額/10
+- 折舊利益＝近4季dep×1000/股數；折舊年數＝ppe/近4季dep；償債年數＝(stb+ltb)/近4季ni
+- 防禦期＝(cash_bs+ar)/日均支出；日均＝(近4季營業成本+營業費用−折舊)/365
+- 現金週期＝存貨+應收−應付天數（單季×90）；業外報酬率＝近4季nonop/(lti或eq)
 
 ## Pipeline 指令
 
 ```
-python3 fetch_mops.py --probe 2330 2024 4          驗證財報解析
-python3 fetch_mops.py --probe-div 113              驗證股利解析
-python3 fetch_mops.py --bulk-backfill 2018 2026    彙總表回補（~72請求，跳過已完成）
-python3 fetch_mops.py --detail-backfill 2018 2026 --limit N   細項回補（斷點續傳）
-python3 fetch_mops.py --detail-codes 2330,2317 --from-year 2018   指定股票
-python3 fetch_mops.py --dividends-backfill 2018 2026   股利回補（9請求）
-python3 fetch_mops.py --update                     最新一季（排程用，含股利）
+--probe 2330 2024 4 / --probe-div 113        端點驗證
+--bulk-backfill 2018 2026                    彙總表
+--detail-backfill 2018 2026 --limit N        細項（斷點續傳，結尾自動 build_screen）
+--detail-codes 2330,2317 --from-year 2018    指定股票
+--dividends-backfill 2018 2026               股利
+--update                                     最新一季（排程用）
+--build-screen                               重建篩選彙總（純本機計算，可與回補並行）
+--retry-missing 2018 2026 --limit N          重試假性無資料（等全部回補完再跑）
 ```
-bulk 跳過條件檢查 2330 的 `rev` 和 `ca` 欄位——若再加新彙總欄位，改這個檢查讓它重抓。detail 加新項目時：`rm data/fin_progress.json` 讓全部重抓。
 
 ## GitHub Actions（findata.yml）
 
-- `30 2 16 4,5,8,11 *`：每季財報截止隔日跑 `--update`
-- `0 */4 * * *`：detail 回補（每批1200，`fin_progress` 筆數 ≥ 檔數×33 即自動 no-op）
-- workflow_dispatch 可手動選 mode
-- ⚠️ 本機長時間跑 detail 前**先 Disable workflow**（避免雙方 commit data 衝突），跑完 `git pull --rebase` 再 push，然後 **Enable 回來**（每季自動更新靠它）
-- git 順序教訓：**先 commit → 再 `git pull --rebase` → 再 push**（先 pull 會因 unstaged changes 報錯）
+- 每季 `--update`；每 4 小時 detail 回補（完成後自動 no-op）
+- ⚠️ 本機跑 detail 前 **Disable workflow**，跑完 push 後 **Enable 回來**
+- git 順序：**先 commit → `git pull --rebase -X theirs` → push**（-X theirs 在雙方都動過 data 時採本機版）
 
 ## 開發流程慣例（本專案）
 
-- 改前端一律先抓 repo 最新 `index.html`（raw.githubusercontent.com），改完用 **@babel/standalone@7.26.4 實際編譯驗證** + 括號平衡檢查，再交付
-- 部署：Dale 下載 index.html → `cp ~/Downloads/index.html ~/Desktop/tw-river-repo/index.html` → add/commit/pull --rebase/push
-- Worker 改動要提醒 Dale 去 Cloudflare Edit code 貼上 Deploy
+- 改前端先抓 repo 最新檔，改完 **@babel/standalone@7.26.4 實際編譯驗證**＋括號平衡再交付
+- Worker 改動：改 repo 的 worker.js → Dale 貼到 Cloudflare Deploy → 驗證（開 /today 或相關端點看回應）→ commit 備份
+- pipeline 改動：py_compile + 合成資料單元測試；新端點先 --probe 請 Dale 貼輸出
+- 部署：Dale 下載檔案 → cp 到 `~/Desktop/tw-river-repo` → add/commit/pull --rebase/push
 
-## 交接時狀態（2026-07-08 09:30）
+## 交接時狀態（2026-07-09 00:05）
 
-- ✅ 前端 v7 全部部署：股利圖 hover、保留股（群組/快照/選單）、← → 瀏覽＋預抓、載入中保留鈕反灰、版面縮小（財指一列三張、河流圖 2×2 縮窄）、搜尋 ✕ 清除、saveWatch 防禦
-- ✅ 驗收通過：2330 對 Excel（見關鍵公式一節）
-- 🔄 **detail 回補進行中（約完成 3 成）**：已交給 GitHub Actions 每 4 小時排程（Enabled），剩約 2.3 萬季 ≈ 3–4 天跑完，完成後自動 no-op。若 Dale 要本機跑記得先 Disable → 跑完 push → Enable
-- ⏳ 待辦（依優先序）：
-  1. **保留股跨裝置同步／匯出匯入清單**（Dale 已指定為下一個功能）。建議先做匯出/匯入（JSON 檔下載/貼上，零後端），跨裝置同步再評估（選項：GitHub Gist token、URL hash 分享碼、或比照 etf-dividend 用 GitHub API 寫檔——各有隱私/複雜度取捨，先問 Dale 使用情境）
-  2. 上櫃（TPEX）未支援——要做需接 www.tpex.org.tw 端點（格式不同）＋ MOPS TYPEK=otc
-  3. 淨值比/殖利率列的「關注價」與 Excel 有小差異（演算法未完全反推；Dale 可提供 Excel 該列數字反推）
-  4. detail 回補完成後可考慮移除 `0 */4` cron（會自動 no-op，不急）
-  5. 預抓深度目前 [+1,+2,−1]，Dale 若覺得連按太快跟不上可加深
-  6. 追蹤總表的「10 等分位階區間」尚未搬到網頁（屬 screen.xls 追蹤總表功能，Dale 未指定要做，先不動）
+- ✅ v8 全部部署：快速瀏覽/完整雙模式、六檢驗圖、全市場篩選、當日收盤（Worker /today）、bundle 失敗不快取＋前端自動重試、折線跨缺口、位階修正、股利圖合併、借款折線
+- 🔄 **detail 回補進行中**：本機 caffeinate 過夜跑（約至 2496+，剩 ~2萬筆 ≈ 11hr），workflow 目前 **Disabled**
+- ⏳ 待辦（依序）：
+  1. **明早收尾**：`--build-screen` → add data → commit → `pull --rebase -X theirs` → push → **Enable workflow**（若沒跑完由 Actions 接力）
+  2. **全部回補完成後跑 `--retry-missing 2018 2026 --limit 30000`**（跑前 Disable、跑完 push + Enable）——撈回鴻海等假性無資料
+  3. **保留股跨裝置同步／匯出匯入**（Dale 指定的下一個功能）：建議先做 JSON 匯出/匯入（零後端），同步選項（Gist token / URL 分享碼 / GitHub API 寫檔）先問使用情境
+  4. 董監持股率：需接 MOPS 董監持股資料集（pipeline 新資料源）
+  5. 上櫃（TPEX）未支援；淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸（若 Dale 反應柱太矮）
+  6. detail 完成後可移除 `0 */4` cron（會自動 no-op，不急）
 
 ## Dale 的專案慣例（務必遵守）
 
-- 單檔 HTML、CDN-only、**Babel 釘 @7.26.4 + classic runtime**（Babel v8 會炸 eval）、繁中 UI、無建置步驟
+- 單檔 HTML、CDN-only、**Babel 釘 @7.26.4 + classic runtime**、繁中 UI、無建置步驟
 - JSON 單行 compact（`separators=(',',':')`, `ensure_ascii=False`）
 - git 指令一律**單一連續 code block、不加行內 # 註解**
 - 循序處理、不開平行 agent；不做沒被要求的功能
-- MOPS/TWSE 端點改動一律先給 `--probe` 類驗證指令、請 Dale 貼輸出再繼續（本環境無法直連 TWSE/MOPS 測試）
+- MOPS/TWSE 端點改動先給 --probe 類驗證、請 Dale 貼輸出再繼續（本環境無法直連測試）
+- Dale 常在訊息結尾留下未打完的編號（「3.」「4.」），要主動追問
