@@ -243,8 +243,9 @@ function trailing4(rows,i,field){
   return n===4?sum:null;
 }
 
-function QChart({title,labels,series,unit="",decimals=1}){
+function QChart({title,labels,series,unit="",decimals=1,hover=false}){
   const W=460,H=230,PAD={l:14,r:56,t:20,b:26};
+  const [hi,setHi]=useState(null);
   const all=series.flatMap(s=>s.data.filter(v=>v!=null));
   if(!all.length) return (
     <div className="chartpanel"><div className="charthead">{title}</div>
@@ -296,6 +297,24 @@ function QChart({title,labels,series,unit="",decimals=1}){
         {labels.map((lb,i)=>i%step===0?(
           <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="9.5" textAnchor="middle" className="mono">{lb}</text>
         ):null)}
+        {hover&&hi!=null&&(()=>{
+          const items=series.filter(s=>s.bar).map(s=>({name:s.name,color:s.color,v:s.data[hi]})).filter(o=>o.v!=null);
+          if(!items.length) return null;
+          return (
+            <g pointerEvents="none">
+              <line x1={X(hi)} x2={X(hi)} y1={PAD.t-4} y2={H-PAD.b} stroke="#667" strokeWidth="1" strokeDasharray="3,3"/>
+              <text x={PAD.l} y={13} fill="#8b98a9" fontSize="10" fontWeight="700" className="mono">{labels[hi]}</text>
+              {items.map((o,k)=>(
+                <text key={k} x={PAD.l+52+k*130} y={13} fill={o.color} fontSize="10.5" fontWeight="700" className="mono">{o.name} {fmt(o.v,decimals)}{unit}</text>
+              ))}
+            </g>
+          );
+        })()}
+        {hover&&labels.map((_,i)=>(
+          <rect key={"h"+i} x={X(i)-slotW/2} y={PAD.t-4} width={slotW} height={H-PAD.t-PAD.b+4} fill="transparent"
+            onMouseEnter={()=>setHi(i)} onMouseLeave={()=>setHi(null)}
+            onClick={()=>setHi(p=>p===i?null:i)}/>
+        ))}
       </svg>
       <div className="legend" style={{flexWrap:"wrap"}}>
         {series.map((s,si)=><span key={si} style={{color:"var(--dim)"}}><span style={{color:s.color,fontWeight:700}}>{s.bar?"▮":"—"}</span> {s.name}</span>)}
@@ -829,7 +848,7 @@ function App(){
                   ]}/>
               )}
               {divRows&&(
-                <QChart title="現金股利（每次發放）" labels={divRows.slice(-20).map(d=>d.s?`${d.y}Q${d.s}`:`${d.y}年`)} unit="元" decimals={2}
+                <QChart title="現金股利（每次發放）" hover labels={divRows.slice(-20).map(d=>d.s?`${d.y}Q${d.s}`:`${d.y}年`)} unit="元" decimals={2}
                   series={[
                     {name:"現金股利",color:"#53c8f5",bar:true,data:divRows.slice(-20).map(d=>d.cash||null)},
                     {name:"股票股利",color:"#ffd54a",bar:true,data:divRows.slice(-20).map(d=>d.stock||null)},
