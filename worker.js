@@ -45,11 +45,13 @@ function taipeiYmd() {
 }
 
 // 當日全市場收盤價（www.twse.com.tw 盤後統計；openapi 只有前一交易日）。
-// 只有回應日期＝今天（台北）才進邊緣快取；TWSE 尚未發佈時不快取，每次去源站問。
+// 此端點實際回 CSV（民國年日期，欄位：日期,代號,名稱,...,收盤價=第9欄），在此解析並正規化為
+// {date:"YYYYMMDD", close:{代號:收盤價}}。只有資料日期＝今天（台北）才進邊緣快取。
 async function handleToday() {
   const cache = caches.default;
   const d = taipeiYmd();
-  const key = new Request(`https://today.internal/${d}`);
+  const roc = String(parseInt(d.slice(0, 4), 10) - 1911) + d.slice(4);
+  const key = new Request(`https://today.internal/v2/${d}`);
   const hit = await cache.match(key);
   if (hit) {
     const res = new Response(hit.body, hit);
@@ -60,12 +62,36 @@ async function handleToday() {
     "https://www.twse.com.tw/rwd/zh/afterTrading/STOCK_DAY_ALL?response=json",
     { headers: UA_HEADERS }
   );
+  const text = await upstream.text();
   if (!upstream.ok) {
-    return jsonResponse({ error: "upstream " + upstream.status }, 502);
+    return jsonResponse({ error: "upstream " + upstream.status, body: text.slice(0, 200) }, 502);
   }
-  const j = await upstream.json();
-  const fresh = j && j.date === d;
-  const body = JSON.stringify(j);
+  const close = {};
+  let parsed = false;
+  try {
+    const j = JSON.parse(text);
+    if (j && j.date === d && Array.isArray(j.data)) {
+      j.data.forEach((r) => {
+        const code = String(r[0]).trim();
+        const v = parseFloat(String(r[7]).replace(/,/g, ""));
+        if (code && isFinite(v)) close[code] = v;
+      });
+      parsed = true;
+    }
+  } catch (e) {
+    for (const line of text.split(/\r?\n/)) {
+      const m = line.match(/"([^"]*)"/g);
+      if (!m || m.length < 9) continue;
+      const f = m.map((s) => s.slice(1, -1));
+      if (f[0] !== roc) continue;
+      const code = f[1].trim();
+      const v = parseFloat(f[8].replace(/,/g, ""));
+      if (code && isFinite(v)) close[code] = v;
+    }
+    parsed = true;
+  }
+  const fresh = parsed && Object.keys(close).length > 0;
+  const body = JSON.stringify({ date: d, n: Object.keys(close).length, close });
   if (fresh) {
     const cacheRes = new Response(body, {
       headers: {
@@ -94,7 +120,7 @@ async function handleBundle(url) {
 
   const cache = caches.default;
   const bundleKey = new Request(
-    `https://bundle.internal/${stockNo}/${from}/${to}/${new Date().toISOString().slice(0, 10)}`
+    `https://bundle.internal/v2/${stockNo}/${from}/${to}/${new Date().toISOString().slice(0, 10)}`
   );
   const hit = await cache.match(bundleKey);
   if (hit) {
@@ -143,18 +169,20 @@ async function handleBundle(url) {
   }
 
   const results = new Array(plan.length).fill(null);
+  let anyFail = false;
   const CHUNK = 6;
   for (let i = 0; i < plan.length; i += CHUNK) {
     const slice = plan.slice(i, i + CHUNK);
     const settled = await Promise.all(
       slice.map((p) =>
         fetchCached(p.url, p.ttl)
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null)
+          .then(async (r) => (r.ok ? { ok: true, j: await r.json() } : { ok: false, j: null }))
+          .catch(() => ({ ok: false, j: null }))
       )
     );
     settled.forEach((v, j) => {
-      results[i + j] = v;
+      results[i + j] = v.j;
+      if (!v.ok) anyFail = true;
     });
     if (i + CHUNK < plan.length) {
       await new Promise((r) => setTimeout(r, 250));
@@ -168,21 +196,36 @@ async function handleBundle(url) {
   });
 
   const body = JSON.stringify({ stockNo, from, to, years });
-  const cacheRes = new Response(body, {
+  if (!anyFail) {
+    const cacheRes = new Response(body, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "public, max-age=" + TTL_SHORT,
+      },
+    });
+    await cache.put(bundleKey, cacheRes.clone());
+  }
+  const res = new Response(body, {
     headers: {
+      ...CORS,
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "public, max-age=" + TTL_SHORT,
+      "Cache-Control": anyFail ? "no-store" : "public, max-age=" + TTL_SHORT,
     },
   });
-  await cache.put(bundleKey, cacheRes.clone());
-
-  const res = new Response(body, cacheRes);
-  for (const [k, v] of Object.entries(CORS)) res.headers.set(k, v);
   return res;
 }
 
 export default {
   async fetch(request) {
+    try {
+      return await route(request);
+    } catch (e) {
+      return jsonResponse({ error: "worker exception", message: String(e && e.message || e), stack: String(e && e.stack || "").slice(0, 300) }, 500);
+    }
+  },
+};
+
+async function route(request) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS });
     }
@@ -216,5 +259,4 @@ export default {
       res.headers.set(k, v);
     }
     return res;
-  },
-};
+}
