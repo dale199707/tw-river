@@ -440,16 +440,19 @@ function StackChart({title,labels,series,unit="億"}){
 /* ============ 河流圖 (SVG) ============ */
 function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",invert=false,hiLabel,loLabel}){
   const W=460,H=260,PAD={l:14,r:44,t:26,b:26};
-  const pts=years.map((y,i)=>({y,hi:series.hi[i],lo:series.lo[i],avg:series.avg[i]}));
-  const valid=pts.filter(p=>p.hi!=null);
-  if(!valid.length) return (
+  const ptsAll=years.map((y,i)=>({y,hi:series.hi[i],lo:series.lo[i],avg:series.avg[i]}));
+  const idxValid=ptsAll.map((p,i)=>p.hi!=null?i:-1).filter(i=>i>=0);
+  if(!idxValid.length) return (
     <div className="chartpanel"><div className="charthead">{title}</div>
     <div style={{color:"#556",textAlign:"center",padding:"60px 0"}}>此期間無足夠資料</div></div>
   );
+  /* 裁掉頭尾完全無資料的年份（新上市股不留左半空白）；中間缺口保留、填色分段 */
+  const pts=ptsAll.slice(idxValid[0],idxValid[idxValid.length-1]+1);
+  const valid=pts.filter(p=>p.hi!=null);
   let vmax=Math.max(...valid.map(p=>p.hi)), vmin=Math.min(...valid.map(p=>p.lo));
   if(nowValue!=null){ vmax=Math.max(vmax,nowValue); vmin=Math.min(vmin,nowValue); }
   const span=(vmax-vmin)||1; vmax+=span*0.1; vmin-=span*0.1;
-  const X=i=>PAD.l+ i*(W-PAD.l-PAD.r)/Math.max(years.length-1,1);
+  const X=i=>PAD.l+ i*(W-PAD.l-PAD.r)/Math.max(pts.length-1,1);
   const Y=v=>{const t=(v-vmin)/(vmax-vmin);return PAD.t+(invert?t:1-t)*(H-PAD.t-PAD.b);};
   const path=key=>{
     let s="",started=false;
@@ -457,11 +460,18 @@ function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",inv
     return s;
   };
   const bandPath=(()=>{
-    const seg=pts.map((p,i)=>({i,hi:p.hi,lo:p.lo})).filter(p=>p.hi!=null);
-    if(seg.length<2) return "";
-    const top=seg.map((p,k)=>(k?"L":"M")+X(p.i).toFixed(1)+","+Y(p.hi).toFixed(1)).join("");
-    const bot=[...seg].reverse().map(p=>"L"+X(p.i).toFixed(1)+","+Y(p.lo).toFixed(1)).join("");
-    return top+bot+"Z";
+    let s="",run=[];
+    const flush=()=>{
+      if(run.length>=2){
+        const top=run.map((p,k)=>(k?"L":"M")+X(p.i).toFixed(1)+","+Y(p.hi).toFixed(1)).join("");
+        const bot=[...run].reverse().map(p=>"L"+X(p.i).toFixed(1)+","+Y(p.lo).toFixed(1)).join("");
+        s+=top+bot+"Z";
+      }
+      run=[];
+    };
+    pts.forEach((p,i)=>{ if(p.hi==null){flush();return;} run.push({i,hi:p.hi,lo:p.lo}); });
+    flush();
+    return s;
   })();
   const lastIdx=pts.map((p,i)=>p.hi!=null?i:-1).filter(i=>i>=0).pop();
   return (
@@ -1566,10 +1576,10 @@ function App(){
               nowValue={jp} nowLabel="輸入股價" decimals={jp!=null&&jp>=500?0:1}/>
             <RiverChart title="本益比河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
-              nowValue={judge?judge.pe:null} nowLabel="目前本益比" decimals={1}/>
+              nowValue={judge&&judge.pe>0?judge.pe:null} nowLabel="目前本益比" decimals={1}/>
             <RiverChart title="股價淨值比河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.pbHi??null),lo:model.rows.map(r=>r.pbLo??null),avg:model.rows.map(r=>r.pbAvg??null)}}
-              nowValue={judge?judge.pb:null} nowLabel="目前淨值比" decimals={2}/>
+              nowValue={judge&&judge.pb>0?judge.pb:null} nowLabel="目前淨值比" decimals={2}/>
             <RiverChart title="殖利率河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.yAtHi??null),lo:model.rows.map(r=>r.yAtLo??null),avg:model.rows.map(r=>r.yAtAvg??null)}}
               nowValue={judge?judge.y:null} nowLabel="目前殖利率" decimals={1} invert={true}
