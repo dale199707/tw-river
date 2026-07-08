@@ -137,28 +137,48 @@ async function fetchJSON(url){
 }
 
 /* ============ 資料層：全市場快照（每日一次） ============ */
+/* 當日全市場收盤（Worker /today，已在 Worker 端把 TWSE CSV 正規化為 {date,close:{代號:收盤}}）。
+   TWSE 約收盤後 15–17 時發佈當日值，發佈前 close 為空 -> 不覆蓋 */
+async function loadToday(){
+  try{
+    const r=await fetch(`${PROXY}/today`);
+    if(!r.ok) return null;
+    const j=await r.json();
+    const d=new Date(Date.now()+8*3600*1000).toISOString().slice(0,10).replace(/-/g,"");
+    if(!j||j.date!==d||!j.close||!Object.keys(j.close).length) return null;
+    return j.close;
+  }catch(e){ return null; }
+}
+
 async function loadSnapshots(){
   const key = snapKey();
   const c = cacheGet(key);
-  if(c) return c;
-  const [info,bwi,avg] = await Promise.all([
-    fetchJSON(`${PROXY}/openapi/v1/opendata/t187ap03_L`),
-    fetchJSON(`${PROXY}/openapi/v1/exchangeReport/BWIBBU_ALL`),
-    fetchJSON(`${PROXY}/openapi/v1/exchangeReport/STOCK_DAY_AVG_ALL`),
-  ]);
-  const companies = info.map(r=>({
-    code:r["公司代號"], name:r["公司簡稱"]||r["公司名稱"], full:r["公司名稱"],
-    ind:INDUSTRY[r["產業別"]]||r["產業別"]||"—",
-    chair:r["董事長"]||"—",
-    capital:num(r["實收資本額"]),
-    est:r["成立日期"], ipo:r["上市日期"],
-  }));
-  const quotes = {};
-  bwi.forEach(r=>{ quotes[r.Code]={pe:num(r.PEratio),pb:num(r.PBratio),yield:num(r.DividendYield)}; });
-  avg.forEach(r=>{ const q=quotes[r.Code]||(quotes[r.Code]={}); q.close=num(r.ClosingPrice); q.mavg=num(r.MonthlyAveragePrice); });
-  const snap = {companies,quotes};
-  Object.keys(localStorage).filter(k=>k.startsWith("twri-snap-")&&k!==key).forEach(k=>localStorage.removeItem(k));
-  cacheSet(key,snap);
+  let snap;
+  if(c){ snap=c; }
+  else{
+    const [info,bwi,avg] = await Promise.all([
+      fetchJSON(`${PROXY}/openapi/v1/opendata/t187ap03_L`),
+      fetchJSON(`${PROXY}/openapi/v1/exchangeReport/BWIBBU_ALL`),
+      fetchJSON(`${PROXY}/openapi/v1/exchangeReport/STOCK_DAY_AVG_ALL`),
+    ]);
+    const companies = info.map(r=>({
+      code:r["公司代號"], name:r["公司簡稱"]||r["公司名稱"], full:r["公司名稱"],
+      ind:INDUSTRY[r["產業別"]]||r["產業別"]||"—",
+      chair:r["董事長"]||"—",
+      capital:num(r["實收資本額"]),
+      est:r["成立日期"], ipo:r["上市日期"],
+    }));
+    const quotes = {};
+    bwi.forEach(r=>{ quotes[r.Code]={pe:num(r.PEratio),pb:num(r.PBratio),yield:num(r.DividendYield)}; });
+    avg.forEach(r=>{ const q=quotes[r.Code]||(quotes[r.Code]={}); q.close=num(r.ClosingPrice); q.mavg=num(r.MonthlyAveragePrice); });
+    snap = {companies,quotes};
+    Object.keys(localStorage).filter(k=>k.startsWith("twri-snap-")&&k!==key).forEach(k=>localStorage.removeItem(k));
+    cacheSet(key,snap);
+  }
+  const today = await loadToday();
+  if(today){
+    Object.keys(today).forEach(cd=>{ const q=snap.quotes[cd]; if(q) q.close=today[cd]; });
+  }
   return snap;
 }
 
