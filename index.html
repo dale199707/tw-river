@@ -733,6 +733,16 @@ function App(){
     return rows.length?rows:null;
   },[fin]);
 
+  /* 年度現金配息率（該年現金股利合計 ÷ 該年 EPS），供股利發放圖疊折線 */
+  const payoutByRocY=useMemo(()=>{
+    if(!divRows||!model) return null;
+    const cashByY={};
+    divRows.forEach(d=>{ if(d.cash) cashByY[d.y]=(cashByY[d.y]||0)+d.cash; });
+    const m={};
+    model.rows.forEach(r=>{ const ry=r.year-1911; if(cashByY[ry]!=null&&r.eps>0) m[ry]=cashByY[ry]/r.eps*100; });
+    return m;
+  },[divRows,model]);
+
   const jp=num(judgePrice);
   const judge=useMemo(()=>{
     if(!model||jp==null) return null;
@@ -1123,8 +1133,8 @@ function App(){
               {finView.hasBorrow&&(
                 <QChart title="檢驗（二）公司資金吃緊嗎？（億）" labels={finView.labels} unit="" decimals={0}
                   series={[
-                    {name:"短期借款",color:"#ffd54a",bar:true,data:finView.stbB},
-                    {name:"長期借款",color:"#4ade80",bar:true,data:finView.ltbB},
+                    {name:"短期借款",color:"#ffd54a",data:finView.stbB},
+                    {name:"長期借款",color:"#4ade80",data:finView.ltbB},
                     {name:"借款總額",color:"#c2410c",data:finView.borrowB},
                     {name:"稅後純益",color:"#53c8f5",data:finView.niB},
                   ]}/>
@@ -1154,11 +1164,12 @@ function App(){
                     {name:"股東權益報酬率",color:"#53c8f5",data:finView.roe},
                   ]}/>
               )}
-              {model&&(
-                <QChart title="檢驗（六）公司獲利能與股東分享嗎？（年）" labels={model.rows.map(r=>String(r.year-1911))} unit="" decimals={1}
+              {divRows&&(
+                <QChart title="檢驗（六）公司獲利能與股東分享嗎？（每次發放）" hover labels={divRows.slice(-20).map(d=>d.s?`${d.y}Q${d.s}`:`${d.y}年`)} unit="" decimals={2}
                   series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:model.rows.map(r=>r.dps??null)},
-                    {name:"現金配息率（%）",color:"#ff9142",data:model.rows.map(r=>(r.dps!=null&&r.eps>0)?r.dps/r.eps*100:null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:divRows.slice(-20).map(d=>d.cash||null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,data:divRows.slice(-20).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",data:divRows.slice(-20).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
             </div>
@@ -1239,8 +1250,8 @@ function App(){
               {finView.hasBorrow&&(
                 <QChart title="公司資金吃緊嗎？（億）" labels={finView.labels} unit="" decimals={0}
                   series={[
-                    {name:"短期借款",color:"#ffd54a",bar:true,data:finView.stbB},
-                    {name:"長期借款",color:"#4ade80",bar:true,data:finView.ltbB},
+                    {name:"短期借款",color:"#ffd54a",data:finView.stbB},
+                    {name:"長期借款",color:"#4ade80",data:finView.ltbB},
                     {name:"借款總額",color:"#c2410c",data:finView.borrowB},
                     {name:"稅後純益",color:"#53c8f5",data:finView.niB},
                   ]}/>
@@ -1270,18 +1281,12 @@ function App(){
                     {name:"股東權益報酬率",color:"#53c8f5",data:finView.roe},
                   ]}/>
               )}
-              {model&&(
-                <QChart title="公司獲利能與股東分享嗎？（年）" labels={model.rows.map(r=>String(r.year-1911))} unit="" decimals={1}
-                  series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:model.rows.map(r=>r.dps??null)},
-                    {name:"現金配息率（%）",color:"#ff9142",data:model.rows.map(r=>(r.dps!=null&&r.eps>0)?r.dps/r.eps*100:null)},
-                  ]}/>
-              )}
               {divRows&&(
-                <QChart title="現金股利（每次發放）" hover labels={divRows.slice(-20).map(d=>d.s?`${d.y}Q${d.s}`:`${d.y}年`)} unit="元" decimals={2}
+                <QChart title="公司獲利能與股東分享嗎？（每次發放）" hover labels={divRows.slice(-20).map(d=>d.s?`${d.y}Q${d.s}`:`${d.y}年`)} unit="" decimals={2}
                   series={[
-                    {name:"現金股利",color:"#53c8f5",bar:true,data:divRows.slice(-20).map(d=>d.cash||null)},
-                    {name:"股票股利",color:"#ffd54a",bar:true,data:divRows.slice(-20).map(d=>d.stock||null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:divRows.slice(-20).map(d=>d.cash||null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,data:divRows.slice(-20).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",data:divRows.slice(-20).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
             </div>
