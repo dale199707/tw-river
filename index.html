@@ -351,7 +351,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false}){
             );
           }
           let path="",started=false;
-          s.data.forEach((v,i)=>{ if(v==null){started=false;return;} path+=(started?"L":"M")+X(i).toFixed(1)+","+Y(v).toFixed(1); started=true; });
+          s.data.forEach((v,i)=>{ if(v==null) return; path+=(started?"L":"M")+X(i).toFixed(1)+","+Y(v).toFixed(1); started=true; });
           return (
             <g key={si}>
               <path d={path} fill="none" stroke={s.color} strokeWidth="2"/>

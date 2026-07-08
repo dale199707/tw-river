@@ -445,6 +445,35 @@ def run_detail(codes, quarters, limit):
     return count
 
 
+DETAIL_FIELDS = ["inv", "ar", "ap", "ppe", "cash_bs", "stb", "ltb", "lti", "dep", "ocf", "capex"]
+
+
+def retry_missing(y1, y2, limit):
+    """重試假性「無資料」：progress 已標完成、但該季在 fin json 內沒有任何 detail 欄位者，
+    自進度移除後重跑 run_detail。MOPS 偶發失敗（限流/伺服器錯誤）會被記成無資料，用此模式撈回。
+    真的沒有財報的季（上市前等）會再被查一次然後重新標記，成本只是每季一個請求。"""
+    done = load_progress()
+    quarters = quarters_between(y1, y2)
+    qset = set(quarters)
+    retry = set()
+    for code in all_codes_with_data():
+        obj = load_stock(code)
+        qmap = obj.get("q") or {}
+        for (c, y, s) in list(done):
+            if c != code or (y, s) not in qset:
+                continue
+            row = qmap.get(qkey(y, s)) or {}
+            if not any(row.get(f) is not None for f in DETAIL_FIELDS):
+                retry.add((c, y, s))
+    if not retry:
+        print("[retry] 沒有需要重試的季")
+        return 0
+    print(f"[retry] 發現 {len(retry)} 季標記完成但無 detail 資料，自進度移除後重抓")
+    save_progress(done - retry)
+    codes = sorted(set(c for (c, _, _) in retry))
+    return run_detail(codes, quarters, limit)
+
+
 def all_codes_with_data():
     if not FIN_DIR.exists():
         return []
@@ -515,6 +544,7 @@ def main():
     ap.add_argument("--probe-div", type=str, metavar="ROC_YEAR")
     ap.add_argument("--dividends-backfill", nargs=2, type=int, metavar=("Y1", "Y2"))
     ap.add_argument("--build-screen", action="store_true")
+    ap.add_argument("--retry-missing", nargs=2, type=int, metavar=("Y1", "Y2"))
     args = ap.parse_args()
 
     if args.probe_div:
@@ -559,6 +589,13 @@ def main():
         return
 
     if args.build_screen:
+        build_screen()
+        return
+
+    if args.retry_missing:
+        y1, y2 = args.retry_missing
+        n = retry_missing(y1, y2, args.limit)
+        print(f"[retry] 本次重抓 {n} 筆")
         build_screen()
         return
 
