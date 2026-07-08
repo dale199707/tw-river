@@ -40,6 +40,14 @@ button:disabled{opacity:.5;cursor:default}
 .stockhead .name{font-size:26px;font-weight:700}
 .stockhead .code{font-size:18px;color:var(--dim)}
 .stockhead .price{font-size:26px;font-weight:700;color:var(--gold)}
+.watchbtn{background:var(--panel2);border:1px solid var(--border);color:var(--gold);padding:9px 14px;font-size:14px}
+.keepbtn{background:var(--panel2);border:1px solid var(--border);color:var(--dim);padding:6px 12px;font-size:13px;border-radius:7px}
+.keepbtn.kept{color:var(--gold);border-color:var(--gold)}
+.rmbtn{background:none;border:none;color:var(--dim);padding:2px 6px;font-size:13px}
+.rmbtn:hover{color:#ff6b6b;filter:none}
+.keyhint{color:var(--dim);font-size:11.5px;border:1px solid var(--border);border-radius:5px;padding:2px 7px}
+@media (hover:none){.keyhint{display:none}}
+.pricetable tbody tr:hover td{background:rgba(255,255,255,0.03)}
 .pricetable{width:100%;border-collapse:collapse;font-size:14px}
 .pricetable th,.pricetable td{border:1px solid var(--border);padding:8px 10px;text-align:center}
 .pricetable th{background:var(--panel2);color:var(--dim);font-weight:400}
@@ -459,6 +467,9 @@ function App(){
   const [judgePrice,setJudgePrice]=useState("");
   const [tab,setTab]=useState("info");
   const [fin,setFin]=useState(null);
+  const [watch,setWatch]=useState(()=>{ try{return JSON.parse(localStorage.getItem("twri-watch"))||[];}catch(e){return[];} });
+  const [watchOpen,setWatchOpen]=useState(false);
+  const [browseWatch,setBrowseWatch]=useState(false);
   const abortRef=useRef(0);
 
   useEffect(()=>{ loadSnapshots().then(setSnap).catch(e=>setSnapErr(String(e))); },[]);
@@ -677,6 +688,54 @@ function App(){
 
   const yearsAgo=d=>{ if(!d||d.length<4) return "—"; const y=+d.slice(0,4),m=+d.slice(4,6)||1; return fmt((Date.now()-new Date(y,m-1).getTime())/3.15576e10,1); };
 
+  /* ===== 保留股（觀察清單）===== */
+  const saveWatch=list=>{ setWatch(list); try{localStorage.setItem("twri-watch",JSON.stringify(list));}catch(e){} };
+  const isKept=stock&&watch.some(w=>w.code===stock.code);
+  const toggleKeep=()=>{
+    if(!stock) return;
+    if(isKept){ saveWatch(watch.filter(w=>w.code!==stock.code)); return; }
+    const entry={code:stock.code,name:stock.name,ts:new Date().toISOString().slice(0,10),snap:{
+      price:stock.quote.close??null,
+      eps:model?model.epsNow:null,
+      ipoY:stock.ipo||null,
+      debtY:finView&&finView.debtYears!=null?finView.debtYears:null,
+      depPS:finView&&finView.depPS!=null?finView.depPS:null,
+      depY:finView&&finView.depYears!=null?finView.depYears:null,
+      payout:model&&model.payoutLast!=null?model.payoutLast:null,
+      hiUp:model&&model.priceBand?model.priceBand.hiUp:null,
+      watchP:model&&model.priceBand?model.priceBand.watch:null,
+      loDn:model&&model.priceBand?model.priceBand.loDn:null,
+    }};
+    saveWatch([...watch,entry]);
+  };
+  const removeKeep=code=>saveWatch(watch.filter(w=>w.code!==code));
+  const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c) pick(c); };
+
+  /* ===== 鍵盤 ← → 逐檔瀏覽 ===== */
+  const browseList=useMemo(()=>{
+    if(!snap) return null;
+    if(browseWatch&&watch.length){
+      const list=watch.map(w=>snap.companies.find(c=>c.code===w.code)).filter(Boolean);
+      if(list.length) return list;
+    }
+    return [...snap.companies].sort((a,b)=>a.code.localeCompare(b.code));
+  },[snap,browseWatch,watch]);
+  useEffect(()=>{
+    const h=e=>{
+      if(e.key!=="ArrowLeft"&&e.key!=="ArrowRight") return;
+      const t=e.target;
+      if(t&&(t.tagName==="INPUT"||t.tagName==="TEXTAREA"||t.isContentEditable)) return;
+      if(!browseList||!browseList.length) return;
+      e.preventDefault();
+      const cur=stock?browseList.findIndex(c=>c.code===stock.code):-1;
+      const d=e.key==="ArrowRight"?1:-1;
+      const ni=cur<0?0:(cur+d+browseList.length)%browseList.length;
+      pick(browseList[ni]);
+    };
+    window.addEventListener("keydown",h);
+    return ()=>window.removeEventListener("keydown",h);
+  },[browseList,stock,pick]);
+
   const bandTable=model&&(
     <table className="pricetable mono">
       <thead><tr><th style={{width:130}}></th><th>高價上限</th><th>高價低限</th><th>關注價</th><th>低價上限</th><th>低價低限</th></tr></thead>
@@ -699,6 +758,7 @@ function App(){
     <div>
       <div className="topbar">
         <h1>台股估價河流圖</h1>
+        <button className="watchbtn" onClick={()=>setWatchOpen(o=>!o)}>★ 保留股（{watch.length}）</button>
         <div className="searchwrap">
           <div className="searchbox">
             <input type="text" placeholder="輸入股號或股名（例：2330 或 台積電）" value={query}
@@ -717,6 +777,48 @@ function App(){
       {snapErr&&<div className="errbox">無法載入 TWSE 全市場資料：{snapErr}<br/>請確認網路連線，或稍後重新整理頁面。</div>}
       {err&&<div className="errbox">{err}</div>}
 
+      {watchOpen&&(
+        <div className="card">
+          <div className="cardtitle" style={{display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+            <span>保留股（{watch.length}）</span>
+            <label style={{fontSize:12.5,color:"var(--dim)",fontWeight:400,display:"flex",alignItems:"center",gap:5,cursor:"pointer"}}>
+              <input type="checkbox" checked={browseWatch} onChange={e=>setBrowseWatch(e.target.checked)}/>
+              ← → 僅在保留股間切換
+            </label>
+          </div>
+          {watch.length===0?(
+            <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>尚無保留股。查詢股票後，點股名旁的「☆ 保留」即可加入。數值為保留當下的快照。</div>
+          ):(
+            <div className="tablewrap">
+              <table className="pricetable small mono">
+                <thead><tr><th>股名</th><th>股號</th><th>保留日</th><th>當時價</th><th>EPS</th><th>掛牌年數</th><th>償債年數</th><th>折舊利益</th><th>折舊年數</th><th>配息率</th><th>高價上限</th><th>關注價</th><th>低價低限</th><th></th></tr></thead>
+                <tbody>
+                  {watch.map(w=>(
+                    <tr key={w.code} style={{cursor:"pointer"}} onClick={()=>openKept(w.code)}>
+                      <td>{w.name}</td>
+                      <td>{w.code}</td>
+                      <td>{w.ts}</td>
+                      <td>{w.snap.price!=null?fmt(w.snap.price,2):"—"}</td>
+                      <td>{w.snap.eps!=null?fmt(w.snap.eps,2):"—"}</td>
+                      <td>{yearsAgo(w.snap.ipoY)}</td>
+                      <td>{w.snap.debtY!=null?fmt(w.snap.debtY,2):"—"}</td>
+                      <td>{w.snap.depPS!=null?fmt(w.snap.depPS,2):"—"}</td>
+                      <td>{w.snap.depY!=null?fmt(w.snap.depY,2):"—"}</td>
+                      <td>{w.snap.payout!=null?fmt(w.snap.payout*100,1)+"%":"—"}</td>
+                      <td className="hiv">{w.snap.hiUp!=null?fmt(w.snap.hiUp):"—"}</td>
+                      <td className="avgv">{w.snap.watchP!=null?fmt(w.snap.watchP):"—"}</td>
+                      <td className="lov">{w.snap.loDn!=null?fmt(w.snap.loDn):"—"}</td>
+                      <td><button className="rmbtn" onClick={e=>{e.stopPropagation();removeKeep(w.code);}}>✕</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="note">點列可開啟該檔股票。EPS／償債年數／折舊利益等為保留當下快照；掛牌年數隨時間更新。鍵盤 ← → 可切換上一檔／下一檔股票。</div>
+        </div>
+      )}
+
       {stock&&(
         <React.Fragment>
           <div className="card">
@@ -725,6 +827,8 @@ function App(){
               <span className="code mono">{stock.code}</span>
               <span className="price mono">{fmt(stock.quote.close,stock.quote.close>=500?0:2)}</span>
               <span style={{color:"var(--dim)",fontSize:13}}>收盤價</span>
+              <button className={"keepbtn"+(isKept?" kept":"")} onClick={toggleKeep}>{isKept?"★ 已保留":"☆ 保留"}</button>
+              <span className="keyhint">← → 切換股票</span>
             </div>
           </div>
           <div className="tabs">
