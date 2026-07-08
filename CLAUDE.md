@@ -110,18 +110,20 @@ worker.js（Worker 原始碼備份）
 - 🔄 **detail 回補進行中**：本機 caffeinate 過夜跑（約至 2496+，剩 ~2萬筆 ≈ 11hr），workflow 目前 **Disabled**
 - ⏳ 待辦（依序）：
   1. **明早收尾**：`--build-screen` → add data → commit → `pull --rebase -X theirs` → push → **Enable workflow**（若沒跑完由 Actions 接力）
-  2. **全部回補完成後跑 `--retry-missing 2018 2026 --limit 30000`**（跑前 Disable、跑完 push + Enable）——撈回鴻海等假性無資料
-  3. **上櫃（TPEX）支援（Dale 明確表示很重要，高優先）**。分四階段，每階段端點都要先請 Dale 跑 probe 貼輸出再實作：
+  2. **全部回補完成後跑 `--retry-missing 2018 2026 --limit 30000`**（跑前 Disable、跑完 push + Enable）——撈回假性無資料（pipeline 已有三態判定：ok/empty/blocked，blocked 不記錄進度＋連擋自動降溫/中止，之後不再產生新誤記）
+  3. **歷史價格落地（Dale 已同意，高優先，在上櫃支援之前做）**：河流圖九年資料改為靜態檔，根治快速瀏覽被 TWSE 限流問題。設計：pipeline 新增價格模式（抓 FMSRFK 逐月高低均＋BWIBBU 年末 PE/PB/殖利率，精簡欄位）→ `data/price/{code}.json`（全市場約數十 MB）；Actions 每月更新當月；前端 loadHistory 歷史年讀靜態檔、當年當月仍即時（quote/bundle）、/bundle 降級為 fallback。一次回補約 1078 檔×~19 請求，本機或 Actions 跑數小時。
+  4. **XBRL 財報稽核層（已驗證可行，2026-07-09 凌晨用 2313 華通 2026Q1 原型對帳：10/10 欄位與爬蟲完全一致）**：MOPS「案例文件整批下載」有 102 年起每季全公司包（Dale 已確認頁面存在）。檔案為 inline XBRL（XHTML＋`ix:nonFraction`），檔名 `tifrs-fr1-m1-{行業}-{cr|er}-{代號}-{YYYYQn}.html`，取 cr（合併）。**已驗證的解析規則**：期間 context＝檔內最大 `From..To..`；時點 context＝`AsOf{期間結束日}`；值處理＝去逗號、`sign="-"` 取負、×10^scale、**÷1000 換千元**；capex 取正值後轉負。欄位對照（一般業）：inv=`ifrs-full:Inventories`、ar=`tifrs-bsci-ci:AccountsReceivableNet`、ap=`ifrs-full:TradeAndOtherCurrentPayablesToTradeSuppliers`、ppe=`ifrs-full:PropertyPlantAndEquipment`、cash_bs=`ifrs-full:CashAndCashEquivalents`、stb=`ifrs-full:ShorttermBorrowings`、ltb=`ifrs-full:LongtermBorrowings`、lti=`ifrs-full:InvestmentsAccountedForUsingEquityMethod`、dep=`ifrs-full:AdjustmentsForDepreciationExpense`、ocf=`ifrs-full:CashFlowsFromUsedInOperatingActivities`、capex=`ifrs-full:PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities`。待辦（適合 Claude Code 專案）：整包 zip 掃描、金融/證券行業 taxonomy 變體、107–108 舊版 taxonomy 抽驗、與 data/fin 逐季比對報告（缺漏補、出入以 XBRL 為準）。
+  5. **上櫃（TPEX）支援（高優先）**。分四階段，每階段端點先請 Dale 跑 probe 貼輸出：
      - (a) MOPS 財報/股利：pipeline 的 bulk/dividends 加 `TYPEK=otc` 跑一輪（t164sb01 個別報表不分市場，detail 直接沿用）；上櫃約 800 檔 ×33 季 ≈ 2.6 萬季 detail，**等上市 retry 完再開跑**
      - (b) 公司清單/每日快照：TPEX openapi（www.tpex.org.tw/openapi/v1/，如 tpex_mainboard_quotes、公司基本資料集），欄位名與 TWSE 不同，前端 loadSnapshots 合併兩市場、公司物件加 market 欄位
      - (c) 歷年月價/PE 河流圖：TPEX 盤後端點（www.tpex.org.tw/www/zh-tw/afterTrading/ 下，對應 FMSRFK/BWIBBU 的月成交資訊與本益比表），**日期用民國年、格式與 TWSE 不同**，Worker /bundle 需依代號市場分流
      - (d) 當日收盤：TPEX 盤後每日行情端點，Worker /today 抓兩市場合併
      - 探測指令已提供給 Dale（見下方「TPEX 探測」），輸出貼回後照格式實作
-  4. **保留股跨裝置同步／匯出匯入**：先做 JSON 匯出/匯入（零後端），同步選項先問使用情境
-  5. 董監持股率：需接 MOPS 董監持股資料集（pipeline 新資料源）
-  6. 淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸（若 Dale 反應柱太矮）；detail 完成後可移除 `0 */4` cron
+  6. **保留股跨裝置同步／匯出匯入**：先做 JSON 匯出/匯入（零後端），同步選項先問使用情境
+  7. 董監持股率：需接 MOPS 董監持股資料集（pipeline 新資料源）
+  8. 淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸（若 Dale 反應柱太矮）；detail 完成後可移除 `0 */4` cron
 
-### TPEX 探測（實作 3. 前請 Dale 執行，每條輸出貼回對話）
+### TPEX 探測（實作 5. 前請 Dale 執行，每條輸出貼回對話）
 
 ```
 curl -s "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes" | head -c 600
