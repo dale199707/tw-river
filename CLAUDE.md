@@ -111,10 +111,26 @@ worker.js（Worker 原始碼備份）
 - ⏳ 待辦（依序）：
   1. **明早收尾**：`--build-screen` → add data → commit → `pull --rebase -X theirs` → push → **Enable workflow**（若沒跑完由 Actions 接力）
   2. **全部回補完成後跑 `--retry-missing 2018 2026 --limit 30000`**（跑前 Disable、跑完 push + Enable）——撈回鴻海等假性無資料
-  3. **保留股跨裝置同步／匯出匯入**（Dale 指定的下一個功能）：建議先做 JSON 匯出/匯入（零後端），同步選項（Gist token / URL 分享碼 / GitHub API 寫檔）先問使用情境
-  4. 董監持股率：需接 MOPS 董監持股資料集（pipeline 新資料源）
-  5. 上櫃（TPEX）未支援；淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸（若 Dale 反應柱太矮）
-  6. detail 完成後可移除 `0 */4` cron（會自動 no-op，不急）
+  3. **上櫃（TPEX）支援（Dale 明確表示很重要，高優先）**。分四階段，每階段端點都要先請 Dale 跑 probe 貼輸出再實作：
+     - (a) MOPS 財報/股利：pipeline 的 bulk/dividends 加 `TYPEK=otc` 跑一輪（t164sb01 個別報表不分市場，detail 直接沿用）；上櫃約 800 檔 ×33 季 ≈ 2.6 萬季 detail，**等上市 retry 完再開跑**
+     - (b) 公司清單/每日快照：TPEX openapi（www.tpex.org.tw/openapi/v1/，如 tpex_mainboard_quotes、公司基本資料集），欄位名與 TWSE 不同，前端 loadSnapshots 合併兩市場、公司物件加 market 欄位
+     - (c) 歷年月價/PE 河流圖：TPEX 盤後端點（www.tpex.org.tw/www/zh-tw/afterTrading/ 下，對應 FMSRFK/BWIBBU 的月成交資訊與本益比表），**日期用民國年、格式與 TWSE 不同**，Worker /bundle 需依代號市場分流
+     - (d) 當日收盤：TPEX 盤後每日行情端點，Worker /today 抓兩市場合併
+     - 探測指令已提供給 Dale（見下方「TPEX 探測」），輸出貼回後照格式實作
+  4. **保留股跨裝置同步／匯出匯入**：先做 JSON 匯出/匯入（零後端），同步選項先問使用情境
+  5. 董監持股率：需接 MOPS 董監持股資料集（pipeline 新資料源）
+  6. 淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸（若 Dale 反應柱太矮）；detail 完成後可移除 `0 */4` cron
+
+### TPEX 探測（實作 3. 前請 Dale 執行，每條輸出貼回對話）
+
+```
+curl -s "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes" | head -c 600
+curl -s "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O" | head -c 600
+curl -s "https://www.tpex.org.tw/www/zh-tw/afterTrading/stkAvgPriceInfo?code=5274&date=2024/01/01&response=json" | head -c 800
+curl -s "https://www.tpex.org.tw/www/zh-tw/afterTrading/peQryDate?date=2024/12/02&code=5274&response=json" | head -c 800
+```
+
+（端點路徑為推測值，探測目的就是確認實際路徑/參數/格式；404 或空回應也是有用資訊，一併貼回。）
 
 ## Dale 的專案慣例（務必遵守）
 
