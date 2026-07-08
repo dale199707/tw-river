@@ -54,7 +54,9 @@ button:disabled{opacity:.5;cursor:default}
 .pricetable th{background:var(--panel2);color:var(--dim);font-weight:400}
 .pricetable td:first-child{background:var(--panel2);color:var(--text);text-align:left}
 .hiv{color:var(--hi)}.lov{color:var(--lo)}.avgv{color:var(--gold)}
-.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));gap:16px}
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(350px,1fr));gap:14px}
+.charts.river{grid-template-columns:repeat(2,minmax(0,1fr));max-width:940px;margin:0 auto}
+@media(max-width:760px){.charts.river{grid-template-columns:1fr}}
 @media(max-width:520px){.charts{grid-template-columns:1fr}}
 .chartpanel{background:#000;border:1px solid var(--border);border-radius:12px;padding:8px 8px 4px}
 .charthead{text-align:center;font-size:15px;font-weight:700;padding:6px 0;background:linear-gradient(90deg,transparent,#1a56db,transparent);border-radius:6px;margin-bottom:4px}
@@ -1218,7 +1220,7 @@ function App(){
               {judge&&judge.posPrice!=null&&(()=>{const v=verdictOf(judge.posPrice);return <span className={"verdict "+v.cls}>股價位階：{v.txt}（{Math.round(judge.posPrice*100)}%）</span>;})()}
             </div>
           </div>
-          <div className="charts">
+          <div className="charts river">
             <RiverChart title="股價河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.hi??null),lo:model.rows.map(r=>r.lo??null),avg:model.rows.map(r=>r.avg??null)}}
               nowValue={jp} nowLabel="輸入股價" decimals={jp!=null&&jp>=500?0:1}/>
