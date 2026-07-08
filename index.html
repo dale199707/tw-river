@@ -250,28 +250,42 @@ async function loadHistory(code,years,quote){
   });
   if(allCached) return years.map(y=>cached[y]);
 
-  const bundle=await fetchJSON(`${PROXY}/bundle?stockNo=${code}&from=${years[0]}&to=${nowY}`);
-  return years.map(y=>{
-    if(cached[y]) return cached[y];
-    const raw=(bundle.years&&bundle.years[y])||{};
-    const price=parseYearPrice(raw.price);
-    if(!price) return null;
-    let ratio=null,refPrice=null;
-    if(y===nowY&&quote&&quote.pe!=null){
-      ratio={pe:quote.pe,pb:quote.pb,yield:quote.yield};
-      refPrice=quote.close;
-    } else {
-      ratio=parseMonthRatio(raw.ratio)||parseMonthRatio(raw.ratioPrev);
-      if(ratio){
-        const refMon=(y<nowY)?12:price.months[price.months.length-1].mon;
-        const mrow=price.months.find(x=>x.mon===refMon);
-        refPrice=mrow?(mrow.avg??(mrow.hi+mrow.lo)/2):price.avg;
-      }
+  /* TWSE 偶發限流時 bundle 會整包空回，自動重試最多 3 次（修正版 Worker 對失敗不快取，重試即有效） */
+  let out=null;
+  for(let attempt=0;attempt<3;attempt++){
+    let bundle=null;
+    try{
+      bundle=await fetchJSON(`${PROXY}/bundle?stockNo=${code}&from=${years[0]}&to=${nowY}`);
+    }catch(e){
+      if(attempt===2) throw e;
+      await new Promise(r=>setTimeout(r,1500*(attempt+1)));
+      continue;
     }
-    const d=buildYearData(y,price,ratio,refPrice);
-    if(d) cacheSet(`twri-y-${code}-${y}`,d);
-    return d;
-  });
+    out=years.map(y=>{
+      if(cached[y]) return cached[y];
+      const raw=(bundle.years&&bundle.years[y])||{};
+      const price=parseYearPrice(raw.price);
+      if(!price) return null;
+      let ratio=null,refPrice=null;
+      if(y===nowY&&quote&&quote.pe!=null){
+        ratio={pe:quote.pe,pb:quote.pb,yield:quote.yield};
+        refPrice=quote.close;
+      } else {
+        ratio=parseMonthRatio(raw.ratio)||parseMonthRatio(raw.ratioPrev);
+        if(ratio){
+          const refMon=(y<nowY)?12:price.months[price.months.length-1].mon;
+          const mrow=price.months.find(x=>x.mon===refMon);
+          refPrice=mrow?(mrow.avg??(mrow.hi+mrow.lo)/2):price.avg;
+        }
+      }
+      const d=buildYearData(y,price,ratio,refPrice);
+      if(d) cacheSet(`twri-y-${code}-${y}`,d);
+      return d;
+    });
+    if(out.some(d=>d!=null)) return out;
+    if(attempt<2) await new Promise(r=>setTimeout(r,1500*(attempt+1)));
+  }
+  return out;
 }
 
 /* ============ 財報資料（data/fin/{code}.json，由 pipeline 產生） ============ */
@@ -1100,7 +1114,7 @@ function App(){
             <div className="svb"><div className="k">高價上限</div><div className="v mono hiv">{model&&model.priceBand?fmt(model.priceBand.hiUp):"—"}</div></div>
             <div className="svb"><div className="k">關注價</div><div className="v mono avgv">{model&&model.priceBand?fmt(model.priceBand.watch):"—"}</div></div>
             <div className="svb"><div className="k">低價低限</div><div className="v mono lov">{model&&model.priceBand?fmt(model.priceBand.loDn):"—"}</div></div>
-            <div className="svb"><div className="k">目前位階（近{YEARS_BACK}年）</div><div className="v mono" style={{color:posColor(svPos)}}>{svPos!=null?fmt(svPos,0)+"%（"+posLabel(svPos)+"）":(loading?"載入中…":"—")}</div></div>
+            <div className="svb"><div className="k">目前位階（近{YEARS_BACK}年）</div><div className="v mono" style={{color:posColor(svPos!=null?svPos*100:null)}}>{svPos!=null?fmt(svPos*100,0)+"%（"+posLabel(svPos*100)+"）":(loading?"載入中…":"—")}</div></div>
           </div>
           <div className="infogrid">
             <div className="infoitem"><div className="k">每股盈餘（近四季）</div><div className="v mono">{model&&model.epsNow!=null?fmt(model.epsNow,2)+" 元":"—"}</div></div>
