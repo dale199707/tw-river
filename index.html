@@ -50,6 +50,12 @@ button:disabled{opacity:.5;cursor:default}
 .grpchip{background:var(--panel2);border:1px solid var(--border);color:var(--dim);padding:4px 11px;font-size:12.5px;border-radius:14px}
 .grpchip.active{color:var(--gold);border-color:var(--gold)}
 .grpsel{background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:2px 4px;max-width:110px}
+.menubg{position:fixed;inset:0;z-index:40}
+.keepmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:41;background:var(--panel2);border:1px solid var(--border);border-radius:9px;min-width:150px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.5)}
+.keepmenu-t{font-size:11px;color:var(--dim);padding:5px 10px 3px}
+.keepmenu-i{font-size:13.5px;color:var(--text);padding:7px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.keepmenu-i:hover{background:rgba(255,255,255,0.07)}
+.keepmenu-i.new{color:var(--gold)}
 .keyhint{color:var(--dim);font-size:11.5px;border:1px solid var(--border);border-radius:5px;padding:2px 7px}
 @media (hover:none){.keyhint{display:none}}
 .pricetable tbody tr:hover td{background:rgba(255,255,255,0.03)}
@@ -716,10 +722,16 @@ function App(){
     saveWatch(watch.map(w=>w.code===code?{...w,grp:g}:w));
   };
   const isKept=stock&&watch.some(w=>w.code===stock.code);
-  const toggleKeep=()=>{
+  const [keepMenu,setKeepMenu]=useState(false);
+  const addKeep=g=>{
     if(!stock) return;
-    if(isKept){ saveWatch(watch.filter(w=>w.code!==stock.code)); return; }
-    const entry={code:stock.code,name:stock.name,ts:new Date().toISOString().slice(0,10),grp:watchGrp!=="全部"?watchGrp:"未分類",snap:{
+    if(g==="__new__"){
+      const name=(prompt("新群組名稱：")||"").trim();
+      if(!name){ setKeepMenu(false); return; }
+      g=name;
+    }
+    setKeepMenu(false);
+    const entry={code:stock.code,name:stock.name,ts:new Date().toISOString().slice(0,10),grp:g,snap:{
       price:stock.quote.close??null,
       eps:model?model.epsNow:null,
       ipoY:stock.ipo||null,
@@ -734,7 +746,15 @@ function App(){
     saveWatch([...watch,entry]);
   };
   const removeKeep=code=>saveWatch(watch.filter(w=>w.code!==code));
+  const customGrps=grpList.filter(g=>g!=="未分類");
+  const onKeepClick=()=>{
+    if(!stock) return;
+    if(isKept){ removeKeep(stock.code); setKeepMenu(false); return; }
+    if(!customGrps.length){ addKeep("未分類"); return; }
+    setKeepMenu(m=>!m);
+  };
   const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c) pick(c); };
+  useEffect(()=>{ setKeepMenu(false); },[stock]);
 
   /* ===== 鍵盤 ← → 逐檔瀏覽 ===== */
   const browseList=useMemo(()=>{
@@ -884,7 +904,21 @@ function App(){
               <span className="code mono">{stock.code}</span>
               <span className="price mono">{fmt(stock.quote.close,stock.quote.close>=500?0:2)}</span>
               <span style={{color:"var(--dim)",fontSize:13}}>收盤價</span>
-              <button className={"keepbtn"+(isKept?" kept":"")} disabled={loading||finLoading} onClick={toggleKeep}>{loading||finLoading?"載入中…":(isKept?"★ 已保留":"☆ 保留")}</button>
+              <span style={{position:"relative"}}>
+                <button className={"keepbtn"+(isKept?" kept":"")} disabled={loading||finLoading} onClick={onKeepClick}>{loading||finLoading?"載入中…":(isKept?"★ 已保留":"☆ 保留")}</button>
+                {keepMenu&&(
+                  <React.Fragment>
+                    <div className="menubg" onClick={()=>setKeepMenu(false)}/>
+                    <div className="keepmenu">
+                      <div className="keepmenu-t">加入群組</div>
+                      {[...customGrps,"未分類"].map(g=>(
+                        <div key={g} className="keepmenu-i" onClick={()=>addKeep(g)}>{g}</div>
+                      ))}
+                      <div className="keepmenu-i new" onClick={()=>addKeep("__new__")}>＋新增群組…</div>
+                    </div>
+                  </React.Fragment>
+                )}
+              </span>
               <span className="keyhint">← → 切換股票</span>
             </div>
           </div>
