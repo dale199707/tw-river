@@ -451,6 +451,58 @@ def all_codes_with_data():
     return sorted(p.stem for p in FIN_DIR.glob("*.json"))
 
 
+def build_screen():
+    """彙總全部股票的篩選指標 -> data/screen.json（供前端篩選功能，一檔一列）
+    償債年數 = (最新季 stb+ltb) / 近4季單季 ni 合計（ni 來自彙總表，全市場都有）
+    折舊年數 = 最新季 ppe / 近4季單季 dep 合計（dep 來自 detail，回補完成的股票才有）
+    近4季任一季無法算出單季值則該指標為 null（前端顯示 —、排序墊底）
+    """
+    def dec(qmap, key, field):
+        v = qmap.get(key, {}).get(field)
+        if v is None:
+            return None
+        y, s = int(key[:4]), int(key[5])
+        if s == 1:
+            return v
+        prev = qmap.get(f"{y}Q{s-1}", {}).get(field)
+        return (v - prev) if prev is not None else None
+
+    rows = []
+    for code in all_codes_with_data():
+        obj = load_stock(code)
+        qmap = obj.get("q") or {}
+        keys = sorted(qmap.keys())
+        if len(keys) < 4:
+            continue
+        last4 = keys[-4:]
+        ni4 = dep4 = None
+        nis = [dec(qmap, k, "ni") for k in last4]
+        deps = [dec(qmap, k, "dep") for k in last4]
+        if all(v is not None for v in nis):
+            ni4 = sum(nis)
+        if all(v is not None for v in deps):
+            dep4 = sum(deps)
+        ppe = stb = ltb = None
+        has_detail = False
+        for k in reversed(keys):
+            r = qmap[k]
+            if r.get("ppe") is not None or r.get("dep") is not None:
+                ppe, stb, ltb = r.get("ppe"), r.get("stb"), r.get("ltb")
+                has_detail = True
+                break
+        debt_y = dep_y = None
+        if has_detail and ni4 is not None and ni4 > 0:
+            debt_y = round(((stb or 0) + (ltb or 0)) / ni4, 2)
+        if ppe is not None and dep4 is not None and dep4 > 0:
+            dep_y = round(ppe / dep4, 2)
+        rows.append({"c": code, "q": keys[-1], "debt": debt_y, "dep": dep_y})
+    out = {"updated": date.today().isoformat(), "rows": rows}
+    (DATA_DIR / "screen.json").write_text(
+        json.dumps(out, separators=(",", ":"), ensure_ascii=False), encoding="utf8")
+    print(f"[screen] {len(rows)} 檔（償債年數可算 {sum(1 for r in rows if r['debt'] is not None)}、"
+          f"折舊年數可算 {sum(1 for r in rows if r['dep'] is not None)}）-> data/screen.json")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--bulk-backfill", nargs=2, type=int, metavar=("Y1", "Y2"))
@@ -462,6 +514,7 @@ def main():
     ap.add_argument("--probe", nargs=3, metavar=("CODE", "YEAR", "SEASON"))
     ap.add_argument("--probe-div", type=str, metavar="ROC_YEAR")
     ap.add_argument("--dividends-backfill", nargs=2, type=int, metavar=("Y1", "Y2"))
+    ap.add_argument("--build-screen", action="store_true")
     args = ap.parse_args()
 
     if args.probe_div:
@@ -505,6 +558,10 @@ def main():
         run_detail(codes, quarters, args.limit)
         return
 
+    if args.build_screen:
+        build_screen()
+        return
+
     if args.detail_backfill:
         y1, y2 = args.detail_backfill
         codes = all_codes_with_data()
@@ -515,6 +572,7 @@ def main():
         n = run_detail(codes, quarters, args.limit)
         remain = len(codes) * len(quarters) - len(load_progress())
         print(f"[detail] 本次 {n} 筆，估計剩餘 {max(remain,0)} 筆")
+        build_screen()
         return
 
     if args.update:
@@ -523,6 +581,7 @@ def main():
         run_dividends(date.today().year - 1, date.today().year)
         codes = all_codes_with_data()
         run_detail(codes, [(y, s)], limit=10**9)
+        build_screen()
         return
 
     ap.print_help()

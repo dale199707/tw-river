@@ -60,6 +60,10 @@ button:disabled{opacity:.5;cursor:default}
 .keepmenu-i{font-size:13.5px;color:var(--text);padding:7px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
 .keepmenu-i:hover{background:rgba(255,255,255,0.07)}
 .keepmenu-i.new{color:var(--gold)}
+.scrf{font-size:12.5px;color:var(--dim);font-weight:400;display:flex;align-items:center;gap:5px}
+.scrf input{width:70px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12.5px;padding:4px 7px}
+.sortth{cursor:pointer;user-select:none;white-space:nowrap}
+.sortth:hover{color:var(--text)}
 .keyhint{color:var(--dim);font-size:11.5px;border:1px solid var(--border);border-radius:5px;padding:2px 7px}
 @media (hover:none){.keyhint{display:none}}
 .pricetable tbody tr:hover td{background:rgba(255,255,255,0.03)}
@@ -493,6 +497,12 @@ function App(){
   const [watchOpen,setWatchOpen]=useState(false);
   const [watchGrp,setWatchGrp]=useState("全部");
   const [browseWatch,setBrowseWatch]=useState(false);
+  const [scrOpen,setScrOpen]=useState(false);
+  const [scrData,setScrData]=useState(null);
+  const [scrErr,setScrErr]=useState(null);
+  const [fDep,setFDep]=useState("");
+  const [fDebt,setFDebt]=useState("");
+  const [scrSort,setScrSort]=useState({k:"c",d:1});
   const abortRef=useRef(0);
 
   useEffect(()=>{ loadSnapshots().then(setSnap).catch(e=>setSnapErr(String(e))); },[]);
@@ -768,6 +778,39 @@ function App(){
   const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c) pick(c); };
   useEffect(()=>{ setKeepMenu(false); },[stock]);
 
+  /* ===== 篩選（data/screen.json，pipeline 產生） ===== */
+  useEffect(()=>{
+    if(!scrOpen||scrData) return;
+    fetch("data/screen.json",{cache:"no-store"})
+      .then(r=>{ if(!r.ok) throw new Error("尚未產生篩選資料（screen.json），請先跑 pipeline --build-screen"); return r.json(); })
+      .then(setScrData)
+      .catch(e=>setScrErr(String(e.message||e)));
+  },[scrOpen,scrData]);
+  const scrRows=useMemo(()=>{
+    if(!scrData||!snap) return null;
+    const names={}; snap.companies.forEach(c=>{names[c.code]=c.name;});
+    let rows=scrData.rows.map(r=>({...r,name:names[r.c]||"—"}));
+    const dep=fDep!==""?+fDep:null, debt=fDebt!==""?+fDebt:null;
+    if(dep!=null&&!isNaN(dep)) rows=rows.filter(r=>r.dep!=null&&r.dep<=dep&&r.dep>0);
+    if(debt!=null&&!isNaN(debt)) rows=rows.filter(r=>r.debt!=null&&r.debt<=debt&&r.debt>=0);
+    const {k,d}=scrSort;
+    rows.sort((a,b)=>{
+      const va=a[k],vb=b[k];
+      if(va==null&&vb==null) return a.c<b.c?-1:1;
+      if(va==null) return 1;
+      if(vb==null) return -1;
+      if(va<vb) return -d;
+      if(va>vb) return d;
+      return a.c<b.c?-1:1;
+    });
+    return rows;
+  },[scrData,snap,fDep,fDebt,scrSort]);
+  const scrTh=(k,label)=>(
+    <th className="sortth" onClick={()=>setScrSort(s=>({k,d:s.k===k?-s.d:1}))}>
+      {label}{scrSort.k===k?(scrSort.d===1?" ▲":" ▼"):""}
+    </th>
+  );
+
   /* ===== 鍵盤 ← → 逐檔瀏覽 ===== */
   const browseList=useMemo(()=>{
     if(!snap) return null;
@@ -835,6 +878,7 @@ function App(){
       <div className="topbar">
         <h1>台股估價河流圖</h1>
         <button className="watchbtn" onClick={()=>setWatchOpen(o=>!o)}>★ 保留股（{watch.length}）</button>
+        <button className="watchbtn" onClick={()=>setScrOpen(o=>!o)}>⚙ 篩選</button>
         <div className="searchwrap">
           <div className="searchbox">
             <div className="inputwrap">
@@ -908,6 +952,42 @@ function App(){
             </div>
           )}
           <div className="note">點列可開啟該檔股票。EPS／償債年數等為保留當下快照；掛牌年數隨時間更新。保留時自動歸入目前選取的群組。看完一檔後會自動預抓前後檔資料，← → 切換更快。</div>
+        </div>
+      )}
+
+      {scrOpen&&(
+        <div className="card">
+          <div className="cardtitle" style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+            <span>全市場篩選</span>
+            <label className="scrf">折舊年數 ≤ <input type="number" min="0" step="0.5" value={fDep} onChange={e=>setFDep(e.target.value)} placeholder="不限"/> 年</label>
+            <label className="scrf">償債年數 ≤ <input type="number" min="0" step="0.5" value={fDebt} onChange={e=>setFDebt(e.target.value)} placeholder="不限"/> 年</label>
+            {(fDep!==""||fDebt!=="")&&<button className="grpchip" onClick={()=>{setFDep("");setFDebt("");}}>清除條件</button>}
+          </div>
+          {scrErr?(
+            <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>{scrErr}</div>
+          ):!scrRows?(
+            <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>載入中…</div>
+          ):(
+            <React.Fragment>
+              <div className="note" style={{marginTop:0}}>符合 {scrRows.length} 檔{scrRows.length>300?"（僅顯示前 300 檔，請加強篩選條件）":""}。點欄位名稱可升冪／降冪排序，點列開啟該檔股票。折舊／償債年數需個別公司財報，detail 回補完成前部分股票為 —（篩選時自動排除）。資料日期：{scrData.updated}</div>
+              <div className="tablewrap">
+                <table className="pricetable small mono">
+                  <thead><tr>{scrTh("c","股號")}<th>股名</th><th>最新季</th>{scrTh("debt","償債年數")}{scrTh("dep","折舊年數")}</tr></thead>
+                  <tbody>
+                    {scrRows.slice(0,300).map(r=>(
+                      <tr key={r.c} style={{cursor:"pointer"}} onClick={()=>openKept(r.c)}>
+                        <td>{r.c}</td>
+                        <td>{r.name}</td>
+                        <td>{r.q}</td>
+                        <td>{r.debt!=null?fmt(r.debt,2):"—"}</td>
+                        <td>{r.dep!=null?fmt(r.dep,2):"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </React.Fragment>
+          )}
         </div>
       )}
 
