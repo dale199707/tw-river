@@ -167,6 +167,56 @@ async function handleNews(url) {
   });
 }
 
+
+// Yahoo 新聞（query1.finance.yahoo.com/v1/finance/search，按關鍵字回新聞，每則附 publisher 媒體名）。
+// 先前用 tw.stock.yahoo.com 站內 API 會忽略 symbol 參數回通用新聞流，已棄用。
+// 無 CORS -> 必須 Worker 代理。含公司名過濾交給前端（與 cnyes 同一套規則）。快取 30 分。
+async function handleYahooNews(url) {
+  const q = (url.searchParams.get("q") || "").trim();
+  if (!q || q.length > 40) {
+    return jsonResponse({ error: "bad q" }, 400);
+  }
+  const cache = caches.default;
+  const key = new Request(`https://ynews.internal/v2/${encodeURIComponent(q)}`);
+  const hit = await cache.match(key);
+  if (hit) {
+    const res = new Response(hit.body, hit);
+    for (const [k, v] of Object.entries(CORS)) res.headers.set(k, v);
+    return res;
+  }
+  const api = "https://query1.finance.yahoo.com/v1/finance/search?q=" + encodeURIComponent(q) +
+    "&newsCount=30&quotesCount=0&enableFuzzyQuery=false";
+  const upstream = await fetch(api, { headers: UA_HEADERS });
+  if (!upstream.ok) {
+    return jsonResponse({ error: "upstream " + upstream.status }, 502);
+  }
+  let j = null;
+  try { j = await upstream.json(); } catch (e) { return jsonResponse({ error: "bad upstream json" }, 502); }
+  const raw = (j && j.news) || [];
+  const items = [];
+  for (const it of raw) {
+    const title = String(it.title || "").trim();
+    const u = String(it.link || "").trim();
+    if (!title || !u) continue;
+    let pub = 0;
+    if (it.providerPublishTime) {
+      pub = it.providerPublishTime > 1e12 ? Math.floor(it.providerPublishTime / 1000) : it.providerPublishTime;
+    }
+    items.push({ title, summary: "", publishAt: pub, u, s: String(it.publisher || "Yahoo") });
+  }
+  const body = JSON.stringify({ q, n: items.length, items });
+  const ok = items.length > 0;
+  if (ok) {
+    const cacheRes = new Response(body, {
+      headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=1800" },
+    });
+    await cache.put(key, cacheRes.clone());
+  }
+  return new Response(body, {
+    headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": ok ? "public, max-age=1800" : "no-store" },
+  });
+}
+
 async function handleBundle(url) {
   const stockNo = url.searchParams.get("stockNo") || "";
   const from = parseInt(url.searchParams.get("from"), 10);
@@ -297,6 +347,9 @@ async function route(request) {
     }
     if (url.pathname === "/news") {
       return handleNews(url);
+    }
+    if (url.pathname === "/ynews") {
+      return handleYahooNews(url);
     }
     if (url.pathname === "/today") {
       return handleToday();

@@ -632,8 +632,8 @@ async function loadStockNews(stock){
         publishAt:it.publishAt||0,
         u:"https://news.cnyes.com/news/id/"+it.newsId, s:"鉅亨網",
       }))),
-    /* Yahoo 股市（多媒體供稿：中央社/工商/經濟等；站內 API 無 CORS，走 Worker 代理） */
-    fetchJSON(`${PROXY}/ynews?symbol=${encodeURIComponent(stock.code+".TW")}`)
+    /* Yahoo 新聞搜尋（多媒體供稿：中央社/工商/經濟等；無 CORS，走 Worker 代理） */
+    fetchJSON(`${PROXY}/ynews?q=${encodeURIComponent(name)}`)
       .then(j=>((j&&j.items)||[]).map(it=>({
         _t:stripTags(it.title), _s:stripTags(it.summary),
         tags:[], publishAt:it.publishAt||0, u:it.u, s:it.s||"Yahoo股市",
