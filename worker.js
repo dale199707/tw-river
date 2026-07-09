@@ -44,14 +44,15 @@ function taipeiYmd() {
   return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10).replace(/-/g, "");
 }
 
-// 當日全市場收盤價（www.twse.com.tw 盤後統計；openapi 只有前一交易日）。
-// 此端點實際回 CSV（民國年日期，欄位：日期,代號,名稱,...,收盤價=第9欄），在此解析並正規化為
-// {date:"YYYYMMDD", close:{代號:收盤價}}。只有資料日期＝今天（台北）才進邊緣快取。
+// 最新收盤價（www.twse.com.tw 盤後統計 STOCK_DAY_ALL，永遠回「最近一個交易日」）。
+// v3：不再過濾「資料日期＝今天」——STOCK_DAY_ALL 永不比 openapi 舊，一律回傳實際資料日期，
+// 由前端無條件覆蓋。修正 v2 的午夜盲區（跨日後被過濾成空，退回 openapi 卻還停在兩天前）。
+// 快取：資料日期＝今天（15:00 後發佈，已定案）快取 6h；資料日期＜今天（凌晨/上午）快取 30 分，
+// 讓 15:00 後的新資料能在半小時內被撿到。
 async function handleToday() {
   const cache = caches.default;
   const d = taipeiYmd();
-  const roc = String(parseInt(d.slice(0, 4), 10) - 1911) + d.slice(4);
-  const key = new Request(`https://today.internal/v2/${d}`);
+  const key = new Request(`https://today.internal/v3/${d}`);
   const hit = await cache.match(key);
   if (hit) {
     const res = new Response(hit.body, hit);
@@ -67,36 +68,40 @@ async function handleToday() {
     return jsonResponse({ error: "upstream " + upstream.status, body: text.slice(0, 200) }, 502);
   }
   const close = {};
-  let parsed = false;
+  let dataDate = null;
   try {
     const j = JSON.parse(text);
-    if (j && j.date === d && Array.isArray(j.data)) {
+    if (j && /^\d{8}$/.test(String(j.date || "")) && Array.isArray(j.data)) {
+      dataDate = String(j.date);
       j.data.forEach((r) => {
         const code = String(r[0]).trim();
         const v = parseFloat(String(r[7]).replace(/,/g, ""));
         if (code && isFinite(v)) close[code] = v;
       });
-      parsed = true;
     }
   } catch (e) {
     for (const line of text.split(/\r?\n/)) {
       const m = line.match(/"([^"]*)"/g);
       if (!m || m.length < 9) continue;
       const f = m.map((s) => s.slice(1, -1));
-      if (f[0] !== roc) continue;
+      const roc = f[0].replace(/\//g, "");
+      if (!/^\d{7}$/.test(roc)) continue;
+      const ymd = String(parseInt(roc.slice(0, 3), 10) + 1911) + roc.slice(3);
+      if (dataDate === null) dataDate = ymd;
+      if (ymd !== dataDate) continue;
       const code = f[1].trim();
       const v = parseFloat(f[8].replace(/,/g, ""));
       if (code && isFinite(v)) close[code] = v;
     }
-    parsed = true;
   }
-  const fresh = parsed && Object.keys(close).length > 0;
-  const body = JSON.stringify({ date: d, n: Object.keys(close).length, close });
+  const fresh = dataDate !== null && Object.keys(close).length > 0;
+  const body = JSON.stringify({ date: dataDate || d, n: Object.keys(close).length, close });
   if (fresh) {
+    const ttl = dataDate === d ? TTL_SHORT : 1800;
     const cacheRes = new Response(body, {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Cache-Control": "public, max-age=" + TTL_SHORT,
+        "Cache-Control": "public, max-age=" + ttl,
       },
     });
     await cache.put(key, cacheRes.clone());
@@ -105,8 +110,78 @@ async function handleToday() {
     headers: {
       ...CORS,
       "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": fresh ? "public, max-age=3600" : "no-store",
+      "Cache-Control": fresh ? "public, max-age=1800" : "no-store",
     },
+  });
+}
+
+
+// 個股新聞（Google News RSS -> JSON）。q=關鍵字（前端帶「代號 OR 公司名」效果不佳，帶公司簡稱即可）。
+// 來源黑名單：論壇/爆料類不入列。快取 30 分。RSS 標題格式「標題 - 媒體名」，去尾綴後以 <source> 為準。
+const NEWS_BLOCKLIST = ["PTT", "批踢踢", "股市爆料同學會", "Dcard", "Mobile01", "巴哈姆特"];
+
+function xmlDecode(s) {
+  return String(s || "")
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'");
+}
+
+async function handleNews(url) {
+  const q = (url.searchParams.get("q") || "").trim();
+  if (!q || q.length > 40) {
+    return jsonResponse({ error: "bad q" }, 400);
+  }
+  const cache = caches.default;
+  const key = new Request(`https://news.internal/v1/${encodeURIComponent(q)}`);
+  const hit = await cache.match(key);
+  if (hit) {
+    const res = new Response(hit.body, hit);
+    for (const [k, v] of Object.entries(CORS)) res.headers.set(k, v);
+    return res;
+  }
+  const rssUrl =
+    "https://news.google.com/rss/search?q=" + encodeURIComponent(q) +
+    "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant";
+  const upstream = await fetch(rssUrl, { headers: UA_HEADERS });
+  const text = await upstream.text();
+  if (!upstream.ok) {
+    return jsonResponse({ error: "upstream " + upstream.status }, 502);
+  }
+  const items = [];
+  const re = /<item>([\s\S]*?)<\/item>/g;
+  let m;
+  while ((m = re.exec(text)) !== null && items.length < 15) {
+    const block = m[1];
+    const pick = (tag) => {
+      const mm = block.match(new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)<\\/" + tag + ">"));
+      return mm ? xmlDecode(mm[1]).trim() : "";
+    };
+    const source = pick("source");
+    if (NEWS_BLOCKLIST.some((b) => source.includes(b))) continue;
+    let title = pick("title");
+    if (source && title.endsWith(" - " + source)) {
+      title = title.slice(0, title.length - source.length - 3);
+    }
+    const link = pick("link");
+    const pub = pick("pubDate");
+    let d = "";
+    if (pub) {
+      const t = new Date(pub);
+      if (!isNaN(t)) d = new Date(t.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
+    }
+    if (title && link) items.push({ t: title, u: link, d, s: source });
+  }
+  const body = JSON.stringify({ q, n: items.length, items });
+  const ok = items.length > 0;
+  if (ok) {
+    const cacheRes = new Response(body, {
+      headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "public, max-age=1800" },
+    });
+    await cache.put(key, cacheRes.clone());
+  }
+  return new Response(body, {
+    headers: { ...CORS, "Content-Type": "application/json; charset=utf-8", "Cache-Control": ok ? "public, max-age=1800" : "no-store" },
   });
 }
 
@@ -237,6 +312,9 @@ async function route(request) {
 
     if (url.pathname === "/bundle") {
       return handleBundle(url);
+    }
+    if (url.pathname === "/news") {
+      return handleNews(url);
     }
     if (url.pathname === "/today") {
       return handleToday();
