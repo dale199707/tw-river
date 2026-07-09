@@ -596,23 +596,32 @@ function JudgeRow({label,pos,extra}){
 /* ============ 主程式 ============ */
 /* ============ 個股消息（新聞 + 今日重大訊息 + 法說會外連） ============ */
 /* 新聞：瀏覽器直連鉅亨 cnyes（避免資料中心出口被擋），Worker /news 為備援。
-   規則：標題／摘要／標籤含公司名才收，排除加密貨幣類，依發佈時間新到舊取 10 則 */
+   規則：剝除 <mark> 等 HTML 標籤；標題／摘要／標籤含公司名才收；排除——
+   ①盤中速報 ②「公司名：」開頭（鉅亨自動轉載的 MOPS 公告：公司債還本付息、子公司取得設備等）
+   ③加密貨幣類標籤 ④重複標題。依發佈時間新到舊取 10 則 */
 const NEWS_TAG_BLOCK=["加密貨幣","虛擬貨幣","比特幣","鏈文"];
+const stripTags=x=>String(x||"").replace(/<[^>]+>/g,"").trim();
 function newsPick(raw,name){
-  const out=(raw||[]).filter(it=>{
-    const tags=(it.keywordForTag||[]).map(x=>String(x).trim());
-    const hay=String(it.title||"")+String(it.summary||"")+tags.join(",");
-    if(!hay.includes(name)) return false;
-    if(tags.some(t=>NEWS_TAG_BLOCK.some(b=>t.includes(b)))) return false;
-    return true;
-  }).sort((a,b)=>(b.publishAt||0)-(a.publishAt||0)).slice(0,10)
+  const seen=new Set();
+  return (raw||[]).map(it=>({...it,_t:stripTags(it.title),_s:stripTags(it.summary)}))
+    .filter(it=>{
+      if(!it._t) return false;
+      const tags=(it.keywordForTag||[]).map(x=>String(x).trim());
+      if(!(it._t+it._s+tags.join(",")).includes(name)) return false;
+      if(tags.some(t=>NEWS_TAG_BLOCK.some(b=>t.includes(b)))) return false;
+      if(/^盤中速報/.test(it._t)) return false;
+      if(/^[^：:]{1,12}[：:]/.test(it._t)) return false;
+      if(seen.has(it._t)) return false;
+      seen.add(it._t);
+      return true;
+    })
+    .sort((a,b)=>(b.publishAt||0)-(a.publishAt||0)).slice(0,10)
     .map(it=>({
-      t:String(it.title||""),
+      t:it._t,
       u:"https://news.cnyes.com/news/id/"+it.newsId,
       d:it.publishAt?new Date(it.publishAt*1000+8*3600e3).toISOString().slice(0,16).replace("T"," "):"",
       s:"鉅亨網",
     }));
-  return out;
 }
 async function loadStockNews(name){
   try{
@@ -621,7 +630,7 @@ async function loadStockNews(name){
   }catch(e){}
   try{
     const j=await fetchJSON(`${PROXY}/news?q=${encodeURIComponent(name)}`);
-    return j.items||[];
+    return (j.items||[]).map(n=>({...n,t:stripTags(n.t)}));
   }catch(e){ return []; }
 }
 
@@ -673,7 +682,7 @@ function NewsView({stock}){
              <div className="note" style={{marginTop:4}}>{n.d}｜{n.s}</div>
            </div>
          ))}
-        <div className="note" style={{marginTop:10}}>新聞來源：鉅亨網關鍵字搜尋（標題／摘要含「{stock.name}」），點標題開新視窗。</div>
+        <div className="note" style={{marginTop:10}}>新聞來源：鉅亨網（已過濾盤中速報與公告轉載，保留營運／產業類新聞），點標題開新視窗。</div>
       </div>
       <div className="card">
         <div className="cardtitle">法人說明會</div>
