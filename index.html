@@ -601,37 +601,47 @@ function JudgeRow({label,pos,extra}){
    ③加密貨幣類標籤 ④重複標題。依發佈時間新到舊取 10 則 */
 const NEWS_TAG_BLOCK=["加密貨幣","虛擬貨幣","比特幣","鏈文"];
 const stripTags=x=>String(x||"").replace(/<[^>]+>/g,"").trim();
-function newsPick(raw,name){
+/* 統一過濾（兩個來源共用）：含公司名才收；殺盤中/盤後速報；殺「公司名：」公告轉載（鉅亨速報保留）；
+   殺加密幣標籤；標題去重；新到舊取 10。輸入為正規化項目 {_t,_s,tags,publishAt,u,s} */
+function newsPick(items,name){
   const seen=new Set();
-  return (raw||[]).map(it=>({...it,_t:stripTags(it.title),_s:stripTags(it.summary)}))
-    .filter(it=>{
-      if(!it._t) return false;
-      const tags=(it.keywordForTag||[]).map(x=>String(x).trim());
-      if(!(it._t+it._s+tags.join(",")).includes(name)) return false;
-      if(tags.some(t=>NEWS_TAG_BLOCK.some(b=>t.includes(b)))) return false;
-      if(/^盤[中後]速報/.test(it._t)) return false;
-      if(/^[^：:]{1,12}[：:]/.test(it._t)&&!/^鉅亨速報/.test(it._t)) return false;
-      if(seen.has(it._t)) return false;
-      seen.add(it._t);
-      return true;
-    })
-    .sort((a,b)=>(b.publishAt||0)-(a.publishAt||0)).slice(0,10)
+  return (items||[]).filter(it=>{
+    if(!it._t) return false;
+    if(!(it._t+it._s+it.tags.join(",")).includes(name)) return false;
+    if(it.tags.some(t=>NEWS_TAG_BLOCK.some(b=>t.includes(b)))) return false;
+    if(/^盤[中後]速報/.test(it._t)) return false;
+    if(/^[^：:]{1,12}[：:]/.test(it._t)&&!/^鉅亨速報/.test(it._t)) return false;
+    const k=it._t.replace(/\s/g,"");
+    if(seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  }).sort((a,b)=>(b.publishAt||0)-(a.publishAt||0)).slice(0,10)
     .map(it=>({
-      t:it._t,
-      u:"https://news.cnyes.com/news/id/"+it.newsId,
+      t:it._t, u:it.u, s:it.s,
       d:it.publishAt?new Date(it.publishAt*1000+8*3600e3).toISOString().slice(0,16).replace("T"," "):"",
-      s:"鉅亨網",
     }));
 }
-async function loadStockNews(name){
-  try{
-    const j=await fetchJSON(`https://ess.api.cnyes.com/ess/api/v1/news/keyword?q=${encodeURIComponent(name)}&limit=30`);
-    return newsPick(j&&j.data&&j.data.items,name);
-  }catch(e){}
-  try{
-    const j=await fetchJSON(`${PROXY}/news?q=${encodeURIComponent(name)}`);
-    return (j.items||[]).map(n=>({...n,t:stripTags(n.t)}));
-  }catch(e){ return []; }
+async function loadStockNews(stock){
+  const name=stock.name;
+  const jobs=[
+    /* 鉅亨（瀏覽器直連，有 CORS） */
+    fetchJSON(`https://ess.api.cnyes.com/ess/api/v1/news/keyword?q=${encodeURIComponent(name)}&limit=30`)
+      .then(j=>((j&&j.data&&j.data.items)||[]).map(it=>({
+        _t:stripTags(it.title), _s:stripTags(it.summary),
+        tags:(it.keywordForTag||[]).map(x=>String(x).trim()),
+        publishAt:it.publishAt||0,
+        u:"https://news.cnyes.com/news/id/"+it.newsId, s:"鉅亨網",
+      }))),
+    /* Yahoo 股市（多媒體供稿：中央社/工商/經濟等；站內 API 無 CORS，走 Worker 代理） */
+    fetchJSON(`${PROXY}/ynews?symbol=${encodeURIComponent(stock.code+".TW")}`)
+      .then(j=>((j&&j.items)||[]).map(it=>({
+        _t:stripTags(it.title), _s:stripTags(it.summary),
+        tags:[], publishAt:it.publishAt||0, u:it.u, s:it.s||"Yahoo股市",
+      }))),
+  ];
+  const settled=await Promise.allSettled(jobs);
+  const merged=settled.flatMap(r=>r.status==="fulfilled"?r.value:[]);
+  return newsPick(merged,name);
 }
 function NewsView({stock}){
   const [news,setNews]=useState(null);
@@ -639,7 +649,7 @@ function NewsView({stock}){
     let dead=false;
     setNews(null);
     (async()=>{
-      const items=await loadStockNews(stock.name);
+      const items=await loadStockNews(stock);
       if(!dead) setNews(items);
     })();
     return ()=>{ dead=true; };
@@ -657,7 +667,7 @@ function NewsView({stock}){
              <div className="note" style={{marginTop:4}}>{n.d}｜{n.s}</div>
            </div>
          ))}
-        <div className="note" style={{marginTop:10}}>新聞來源：鉅亨網（已過濾盤中／盤後速報與公告轉載，保留營運／產業類新聞），點標題開新視窗。</div>
+        <div className="note" style={{marginTop:10}}>新聞來源：鉅亨網＋Yahoo股市（中央社／工商／經濟等供稿；已過濾速報與公告轉載），點標題開新視窗。</div>
       </div>
       <div className="card">
         <div className="cardtitle">法人說明會</div>
