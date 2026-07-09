@@ -594,10 +594,10 @@ function JudgeRow({label,pos,extra}){
 }
 
 /* ============ 主程式 ============ */
-/* ============ 個股消息（新聞 + 今日重大訊息 + 法說會外連） ============ */
-/* 新聞：瀏覽器直連鉅亨 cnyes（避免資料中心出口被擋），Worker /news 為備援。
+/* ============ 個股消息（營運新聞 + 法說會外連） ============
+   新聞：瀏覽器直連鉅亨 cnyes（避免資料中心出口被擋），Worker /news 為備援。
    規則：剝除 <mark> 等 HTML 標籤；標題／摘要／標籤含公司名才收；排除——
-   ①盤中速報 ②「公司名：」開頭（鉅亨自動轉載的 MOPS 公告：公司債還本付息、子公司取得設備等）
+   ①盤中／盤後速報（鉅亨速報保留，如 Factset 預估）②「公司名：」開頭（鉅亨自動轉載的 MOPS 公告）
    ③加密貨幣類標籤 ④重複標題。依發佈時間新到舊取 10 則 */
 const NEWS_TAG_BLOCK=["加密貨幣","虛擬貨幣","比特幣","鏈文"];
 const stripTags=x=>String(x||"").replace(/<[^>]+>/g,"").trim();
@@ -609,8 +609,8 @@ function newsPick(raw,name){
       const tags=(it.keywordForTag||[]).map(x=>String(x).trim());
       if(!(it._t+it._s+tags.join(",")).includes(name)) return false;
       if(tags.some(t=>NEWS_TAG_BLOCK.some(b=>t.includes(b)))) return false;
-      if(/^盤中速報/.test(it._t)) return false;
-      if(/^[^：:]{1,12}[：:]/.test(it._t)) return false;
+      if(/^盤[中後]速報/.test(it._t)) return false;
+      if(/^[^：:]{1,12}[：:]/.test(it._t)&&!/^鉅亨速報/.test(it._t)) return false;
       if(seen.has(it._t)) return false;
       seen.add(it._t);
       return true;
@@ -633,45 +633,20 @@ async function loadStockNews(name){
     return (j.items||[]).map(n=>({...n,t:stripTags(n.t)}));
   }catch(e){ return []; }
 }
-
-const majorMem={v:null,t:0};
-const kv=(r,kw)=>{ const k=Object.keys(r).find(x=>x.trim()===kw||x.indexOf(kw)>=0); return k!=null?String(r[k]).trim():""; };
-const rocFmt=d=>{ const s=String(d||"").trim(); return /^\d{7}$/.test(s)?`${s.slice(0,3)}/${s.slice(3,5)}/${s.slice(5)}`:s; };
 function NewsView({stock}){
   const [news,setNews]=useState(null);
-  const [major,setMajor]=useState(null);
   useEffect(()=>{
     let dead=false;
-    setNews(null); setMajor(null);
+    setNews(null);
     (async()=>{
       const items=await loadStockNews(stock.name);
       if(!dead) setNews(items);
-    })();
-    (async()=>{
-      try{
-        if(!majorMem.v||Date.now()-majorMem.t>1800e3){
-          majorMem.v=await fetchJSON(`${PROXY}/openapi/v1/opendata/t187ap04_L`);
-          majorMem.t=Date.now();
-        }
-        if(!dead) setMajor(majorMem.v.filter(r=>kv(r,"公司代號")===stock.code));
-      }catch(e){ if(!dead) setMajor([]); }
     })();
     return ()=>{ dead=true; };
   },[stock.code]);
   const row={padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.06)"};
   return (
     <React.Fragment>
-      <div className="card">
-        <div className="cardtitle">今日重大訊息</div>
-        {major==null?<div className="note">載入中…</div>:
-         major.length===0?<div className="note">{stock.name} 今日無重大訊息公告。（來源：公開資訊觀測站每日重大訊息）</div>:
-         major.map((r,i)=>(
-           <div key={i} style={row}>
-             <div style={{fontSize:14,lineHeight:1.6}}>{kv(r,"主旨")}</div>
-             <div className="note" style={{marginTop:4}}>發言日期 {rocFmt(kv(r,"發言日期"))}｜事實發生日 {rocFmt(kv(r,"事實發生日"))}｜{kv(r,"符合條款")}</div>
-           </div>
-         ))}
-      </div>
       <div className="card">
         <div className="cardtitle">營運新聞</div>
         {news==null?<div className="note">載入中…</div>:
@@ -682,7 +657,7 @@ function NewsView({stock}){
              <div className="note" style={{marginTop:4}}>{n.d}｜{n.s}</div>
            </div>
          ))}
-        <div className="note" style={{marginTop:10}}>新聞來源：鉅亨網（已過濾盤中速報與公告轉載，保留營運／產業類新聞），點標題開新視窗。</div>
+        <div className="note" style={{marginTop:10}}>新聞來源：鉅亨網（已過濾盤中／盤後速報與公告轉載，保留營運／產業類新聞），點標題開新視窗。</div>
       </div>
       <div className="card">
         <div className="cardtitle">法人說明會</div>
