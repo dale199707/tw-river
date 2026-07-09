@@ -71,6 +71,33 @@ rev=`ifrs-full:Revenue`、gp=`ifrs-full:GrossProfit`、op=營業利益（候選 
 - **驗收**：2330 對照網站財務指標分頁既有數字；2313 2026Q1 已知全對；隨機抽 3 檔金融股確認彙總欄位有值、detail 欄位合理留空
 - commit 時只 add `data/fin data/screen.json pipeline/xbrl_ingest.py .gitignore`，**不要 `git add -A`**（XBRL 原始檔在 repo 資料夾內！）
 
+### 執行指令與續傳（`xbrl_ingest.py` 已實作＋驗證，2026-07-09）
+
+**現況**：`pipeline/xbrl_ingest.py` 已完成並驗證。**2026Q1 已實際寫入**（2044 檔全解析 0 失敗、966 上櫃新代號、欄位一致率 99.77%），並記進斷點檔。**其餘 32 季（2018Q1–2025Q4）尚未跑**。
+
+**指令**：
+```
+python3 pipeline/xbrl_ingest.py --quarter 2026Q1 --dry-run   單季只比對不寫檔
+python3 pipeline/xbrl_ingest.py --quarter 2024Q3             單季寫檔（並記斷點）
+python3 pipeline/xbrl_ingest.py --all                        逐季跑，斷點自動跳過已完成季
+python3 pipeline/xbrl_ingest.py --all --force                忽略斷點全部重跑
+```
+- **續傳**：斷點檔 `data/xbrl_progress.json`（`{"done":[...]}`，已 gitignore、機器本地）。整季跑完才記完成；中斷未記 → 重跑該季（merge 冪等，不會壞資料，達成「中斷重跑不重工」）。`--all` 預設跳過已完成季，`--force` 全重跑。
+- **格式自動偵測**：2018=plain XBRL（`.xml`，完整元無 scale）、2019+=inline XBRL（`.html`，`ix:nonFraction`×10^scale），同一 `build()` 內偵測 `ix:nonFraction` 有無自動切換；context 皆語意字串 `From{Y}0101To{季末}`／`AsOf{季末}`。
+- **報表優先序 cr→ir**（無「er」，CLAUDE 舊字誤）；代號含英數（如 `0009A0`）。
+- **每季統計**：掃描/選用（cr/ir）/解析成功/失敗（列失敗檔名）｜新建代號數｜一致·補缺·出入｜金融/特殊業 rev 留空檔數（含行業分佈）｜出入前 N（`--top`，預設 10）｜bvps 出入清單（保留爬蟲值，單獨列供抽查）。
+- **元素校正紀錄**：op=`ifrs-full:ProfitLossFromOperatingActivities`（非舊候選）；ni=`ifrs-full:ProfitLoss`（總額，clean 股與爬蟲定義一致，2330 驗證同值）；lti fallback 複數→單數（2018 舊 taxonomy 用單數 `Investment...`）；bvps=歸屬母公司權益÷(實收資本額÷10)，**merge 採爬蟲值優先、只補缺**（面額非10元/特別股會算錯）。
+
+**跑完全部 33 季後的收尾**：
+```
+python3 pipeline/fetch_mops.py --build-screen
+git add data/fin data/screen.json pipeline/xbrl_ingest.py .gitignore
+git commit -m "XBRL 建庫：全 33 季財報入庫（上市＋上櫃）"
+git pull --rebase -X theirs
+git push
+```
+（`data/xbrl_progress.json` 已 gitignore 不會進 commit；務必別 `git add -A`，XBRL 原始檔在 repo 內。）
+
 ### 建庫後續（同一專案內或另開）
 - 移除 findata.yml 的 `0 */4` detail cron；每季更新方式：Dale 每季手動下載新一季 XBRL 包跑 `xbrl_ingest.py --quarter`，或保留 `--update` 爬單季（擇一，問 Dale）
 - 股利爬蟲保留（`--dividends-backfill`，一年一請求；上櫃需 pipeline 加 TYPEK=otc 跑一輪）

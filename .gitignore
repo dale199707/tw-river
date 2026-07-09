@@ -1,2 +1,5 @@
 XBRL/
 .DS_Store
+data/xbrl_progress.json
+__pycache__/
+*.pyc
