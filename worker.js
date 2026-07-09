@@ -116,61 +116,43 @@ async function handleToday() {
 }
 
 
-// 個股新聞（Google News RSS -> JSON）。q=關鍵字（前端帶「代號 OR 公司名」效果不佳，帶公司簡稱即可）。
-// 來源黑名單：論壇/爆料類不入列。快取 30 分。RSS 標題格式「標題 - 媒體名」，去尾綴後以 <source> 為準。
-const NEWS_BLOCKLIST = ["PTT", "批踢踢", "股市爆料同學會", "Dcard", "Mobile01", "巴哈姆特"];
-
-function xmlDecode(s) {
-  return String(s || "")
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&apos;/g, "'");
-}
-
+// 個股新聞（鉅亨網 cnyes 關鍵字 API -> 精簡 JSON）。Google News RSS 會對 Cloudflare 出口回 503，故改接 cnyes。
+// cnyes 關鍵字搜尋偏鬆（會混入不相關新聞），Worker 端加相關性過濾：標題或摘要必須含關鍵字。快取 30 分。
 async function handleNews(url) {
   const q = (url.searchParams.get("q") || "").trim();
   if (!q || q.length > 40) {
     return jsonResponse({ error: "bad q" }, 400);
   }
   const cache = caches.default;
-  const key = new Request(`https://news.internal/v1/${encodeURIComponent(q)}`);
+  const key = new Request(`https://news.internal/v2/${encodeURIComponent(q)}`);
   const hit = await cache.match(key);
   if (hit) {
     const res = new Response(hit.body, hit);
     for (const [k, v] of Object.entries(CORS)) res.headers.set(k, v);
     return res;
   }
-  const rssUrl =
-    "https://news.google.com/rss/search?q=" + encodeURIComponent(q) +
-    "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant";
-  const upstream = await fetch(rssUrl, { headers: UA_HEADERS });
-  const text = await upstream.text();
+  const upstream = await fetch(
+    "https://ess.api.cnyes.com/ess/api/v1/news/keyword?q=" + encodeURIComponent(q) + "&limit=30",
+    { headers: UA_HEADERS }
+  );
   if (!upstream.ok) {
     return jsonResponse({ error: "upstream " + upstream.status }, 502);
   }
+  let j = null;
+  try { j = await upstream.json(); } catch (e) { return jsonResponse({ error: "bad upstream json" }, 502); }
+  const raw = (j && j.data && j.data.items) || [];
   const items = [];
-  const re = /<item>([\s\S]*?)<\/item>/g;
-  let m;
-  while ((m = re.exec(text)) !== null && items.length < 15) {
-    const block = m[1];
-    const pick = (tag) => {
-      const mm = block.match(new RegExp("<" + tag + "[^>]*>([\\s\\S]*?)<\\/" + tag + ">"));
-      return mm ? xmlDecode(mm[1]).trim() : "";
-    };
-    const source = pick("source");
-    if (NEWS_BLOCKLIST.some((b) => source.includes(b))) continue;
-    let title = pick("title");
-    if (source && title.endsWith(" - " + source)) {
-      title = title.slice(0, title.length - source.length - 3);
-    }
-    const link = pick("link");
-    const pub = pick("pubDate");
+  for (const it of raw) {
+    if (items.length >= 15) break;
+    const title = String(it.title || "");
+    const summary = String(it.summary || "");
+    if (!title.includes(q) && !summary.includes(q)) continue;
     let d = "";
-    if (pub) {
-      const t = new Date(pub);
+    if (it.publishAt) {
+      const t = new Date(it.publishAt * 1000);
       if (!isNaN(t)) d = new Date(t.getTime() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace("T", " ");
     }
-    if (title && link) items.push({ t: title, u: link, d, s: source });
+    items.push({ t: title, u: "https://news.cnyes.com/news/id/" + it.newsId, d, s: "鉅亨網" });
   }
   const body = JSON.stringify({ q, n: items.length, items });
   const ok = items.length > 0;

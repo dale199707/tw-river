@@ -594,6 +594,71 @@ function JudgeRow({label,pos,extra}){
 }
 
 /* ============ 主程式 ============ */
+/* ============ 個股消息（新聞 + 今日重大訊息 + 法說會外連） ============ */
+const majorMem={v:null,t:0};
+const kv=(r,kw)=>{ const k=Object.keys(r).find(x=>x.trim()===kw||x.indexOf(kw)>=0); return k!=null?String(r[k]).trim():""; };
+const rocFmt=d=>{ const s=String(d||"").trim(); return /^\d{7}$/.test(s)?`${s.slice(0,3)}/${s.slice(3,5)}/${s.slice(5)}`:s; };
+function NewsView({stock}){
+  const [news,setNews]=useState(null);
+  const [major,setMajor]=useState(null);
+  useEffect(()=>{
+    let dead=false;
+    setNews(null); setMajor(null);
+    (async()=>{
+      try{
+        const j=await fetchJSON(`${PROXY}/news?q=${encodeURIComponent(stock.name)}`);
+        if(!dead) setNews(j.items||[]);
+      }catch(e){ if(!dead) setNews([]); }
+    })();
+    (async()=>{
+      try{
+        if(!majorMem.v||Date.now()-majorMem.t>1800e3){
+          majorMem.v=await fetchJSON(`${PROXY}/openapi/v1/opendata/t187ap04_L`);
+          majorMem.t=Date.now();
+        }
+        if(!dead) setMajor(majorMem.v.filter(r=>kv(r,"公司代號")===stock.code));
+      }catch(e){ if(!dead) setMajor([]); }
+    })();
+    return ()=>{ dead=true; };
+  },[stock.code]);
+  const row={padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.06)"};
+  return (
+    <React.Fragment>
+      <div className="card">
+        <div className="cardtitle">今日重大訊息</div>
+        {major==null?<div className="note">載入中…</div>:
+         major.length===0?<div className="note">{stock.name} 今日無重大訊息公告。（來源：公開資訊觀測站每日重大訊息）</div>:
+         major.map((r,i)=>(
+           <div key={i} style={row}>
+             <div style={{fontSize:14,lineHeight:1.6}}>{kv(r,"主旨")}</div>
+             <div className="note" style={{marginTop:4}}>發言日期 {rocFmt(kv(r,"發言日期"))}｜事實發生日 {rocFmt(kv(r,"事實發生日"))}｜{kv(r,"符合條款")}</div>
+           </div>
+         ))}
+      </div>
+      <div className="card">
+        <div className="cardtitle">營運新聞</div>
+        {news==null?<div className="note">載入中…</div>:
+         news.length===0?<div className="note">目前查無「{stock.name}」相關新聞，或新聞來源暫時無法連線。</div>:
+         news.map((n,i)=>(
+           <div key={i} style={row}>
+             <a href={n.u} target="_blank" rel="noopener noreferrer" style={{color:"var(--fg)",textDecoration:"none",fontSize:14,lineHeight:1.6}}>{n.t}</a>
+             <div className="note" style={{marginTop:4}}>{n.d}｜{n.s}</div>
+           </div>
+         ))}
+        <div className="note" style={{marginTop:10}}>新聞來源：鉅亨網關鍵字搜尋（標題／摘要含「{stock.name}」），點標題開新視窗。</div>
+      </div>
+      <div className="card">
+        <div className="cardtitle">法人說明會</div>
+        <div className="note">法說會時程請至公開資訊觀測站查詢：</div>
+        <a href="https://mopsov.twse.com.tw/mops/web/t100sb02_1" target="_blank" rel="noopener noreferrer"
+           style={{display:"inline-block",marginTop:8,padding:"8px 14px",border:"1px solid var(--accent)",borderRadius:8,color:"var(--accent)",textDecoration:"none",fontSize:13}}>
+          在 MOPS 查詢 {stock.name} 法說會 ↗
+        </a>
+      </div>
+    </React.Fragment>
+  );
+}
+
 function App(){
   const [snap,setSnap]=useState(null);
   const [snapErr,setSnapErr]=useState(null);
@@ -1165,6 +1230,7 @@ function App(){
             <button className={"tab"+(tab==="charts"?" active":"")} onClick={()=>setTab("charts")}>河流圖</button>
             <button className={"tab"+(tab==="fin"?" active":"")} onClick={()=>setTab("fin")}>財務指標</button>
             <button className={"tab"+(tab==="table"?" active":"")} onClick={()=>setTab("table")}>詳細數據</button>
+            <button className={"tab"+(tab==="news"?" active":"")} onClick={()=>setTab("news")}>消息</button>
           </div>}
         </React.Fragment>
       )}
@@ -1257,6 +1323,10 @@ function App(){
           )}
           <div className="note">位階＝今日收盤價在近 {YEARS_BACK} 年最高／最低區間的位置{model&&model.finUsed?"；EPS／淨值採用財報實際值":""}。折舊／償債／防禦期／現金週期需個別公司財報，回補完成前部分股票為 —。← → 切換上一檔／下一檔，點右上「▦ 完整模式」看河流圖與完整財務指標。</div>
         </div>
+      )}
+
+      {stock&&mode==="detail"&&tab==="news"&&(
+        <NewsView stock={stock}/>
       )}
 
       {stock&&mode==="detail"&&tab==="info"&&(
