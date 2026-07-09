@@ -1,0 +1,36 @@
+name: pricedata
+
+on:
+  schedule:
+    - cron: "30 21 5 * *"   # 每月 6 日 05:30 台北（UTC 5 日 21:30）
+  workflow_dispatch: {}
+
+concurrency:
+  group: pricedata
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 每月價格增量更新
+        run: python3 pipeline/price_ingest.py --update --delay 3
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/price
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "pricedata: 每月價格更新 $(date -u +%Y-%m-%d)"
+          git pull --rebase -X theirs
+          git push

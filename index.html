@@ -239,6 +239,20 @@ function buildYearData(year,price,ratio,refPrice){
   };
 }
 
+/* 歷史價格靜態檔（data/price/{code}.json，pipeline 每月產生）：
+   {"code","updated","y":{"2018":{hi,lo,avg,pe,pb,yield,ref}|null,...}} 只含已完結年度、null=該年無資料 */
+const priceMem=new Map();
+async function loadPriceStatic(code){
+  if(priceMem.has(code)) return priceMem.get(code);
+  try{
+    const r=await fetch(`data/price/${code}.json`,{cache:"no-store"});
+    if(!r.ok){ priceMem.set(code,null); return null; }
+    const j=await r.json();
+    priceMem.set(code,j);
+    return j;
+  }catch(e){ priceMem.set(code,null); return null; }
+}
+
 async function loadHistory(code,years,quote){
   const nowY=years[years.length-1];
   const cached={};
@@ -250,7 +264,51 @@ async function loadHistory(code,years,quote){
   });
   if(allCached) return years.map(y=>cached[y]);
 
-  /* TWSE 偶發限流時 bundle 會整包空回，自動重試最多 3 次（修正版 Worker 對失敗不快取，重試即有效） */
+  /* 主路徑：歷史年讀同源靜態檔（不經 TWSE，根治限流），僅當年走 /bundle 即時（每檔 2–3 上游請求） */
+  const stat=await loadPriceStatic(code);
+  if(stat&&stat.y){
+    const out=years.map(y=>{
+      if(cached[y]) return cached[y];
+      if(y===nowY) return null;
+      const e=stat.y[y];
+      if(!e) return null;
+      const ratio=(e.pe!=null||e.pb!=null||e.yield!=null)?{pe:e.pe,pb:e.pb,yield:e.yield}:null;
+      const d=buildYearData(y,{hi:e.hi,lo:e.lo,avg:e.avg},ratio,e.ref);
+      if(d) cacheSet(`twri-y-${code}-${y}`,d);
+      return d;
+    });
+    if(!cached[nowY]){
+      for(let attempt=0;attempt<2;attempt++){
+        try{
+          const bundle=await fetchJSON(`${PROXY}/bundle?stockNo=${code}&from=${nowY}&to=${nowY}`);
+          const raw=(bundle.years&&bundle.years[nowY])||{};
+          const price=parseYearPrice(raw.price);
+          if(price){
+            let ratio=null,refPrice=null;
+            if(quote&&quote.pe!=null){
+              ratio={pe:quote.pe,pb:quote.pb,yield:quote.yield};
+              refPrice=quote.close;
+            }else{
+              ratio=parseMonthRatio(raw.ratio)||parseMonthRatio(raw.ratioPrev);
+              if(ratio){
+                const refMon=price.months[price.months.length-1].mon;
+                const mrow=price.months.find(x=>x.mon===refMon);
+                refPrice=mrow?(mrow.avg??(mrow.hi+mrow.lo)/2):price.avg;
+              }
+            }
+            const d=buildYearData(nowY,price,ratio,refPrice);
+            if(d){ cacheSet(`twri-y-${code}-${nowY}`,d); out[out.length-1]=d; }
+          }
+          break;
+        }catch(e){ if(attempt<1) await new Promise(r=>setTimeout(r,1500)); }
+      }
+    }
+    if(out.some(d=>d!=null)) return out;
+    /* 靜態檔存在但整段無資料（異常）→ 落回完整 /bundle */
+  }
+
+  /* fallback：靜態檔未涵蓋此代號（如新上市、回補未完）時走原完整 /bundle 路徑。
+     TWSE 偶發限流時 bundle 會整包空回，自動重試最多 3 次（修正版 Worker 對失敗不快取，重試即有效） */
   let out=null;
   for(let attempt=0;attempt<3;attempt++){
     let bundle=null;
