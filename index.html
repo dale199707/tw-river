@@ -144,15 +144,14 @@ async function fetchJSON(url){
 }
 
 /* ============ 資料層：全市場快照（每日一次） ============ */
-/* 當日全市場收盤（Worker /today，已在 Worker 端把 TWSE CSV 正規化為 {date,close:{代號:收盤}}）。
-   TWSE 約收盤後 15–17 時發佈當日值，發佈前 close 為空 -> 不覆蓋 */
+/* 最新收盤（Worker /today v3，STOCK_DAY_ALL 永遠回最近一個交易日、永不比 openapi 舊）：
+   有資料就無條件覆蓋 quotes 收盤。15:00 後為當日、之前（含凌晨）為前一交易日 */
 async function loadToday(){
   try{
     const r=await fetch(`${PROXY}/today`);
     if(!r.ok) return null;
     const j=await r.json();
-    const d=new Date(Date.now()+8*3600*1000).toISOString().slice(0,10).replace(/-/g,"");
-    if(!j||j.date!==d||!j.close||!Object.keys(j.close).length) return null;
+    if(!j||!j.close||!Object.keys(j.close).length) return null;
     return j.close;
   }catch(e){ return null; }
 }
