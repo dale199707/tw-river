@@ -1062,7 +1062,7 @@ function App(){
     if(!stock) return;
     setKeepMenu(m=>!m);   /* ☆ 加入群組；★ 開同一選單切換群組/取消保留（不再一鍵移除） */
   };
-  const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c) pick(c); };
+  const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c){ setScrOpen(false); pick(c); } };
   useEffect(()=>{ setKeepMenu(false); },[stock]);
 
   /* ===== 篩選（data/screen.json，pipeline 產生） ===== */
@@ -1165,10 +1165,10 @@ function App(){
       <div className="topbar">
         <h1>台股估價河流圖</h1>
         <button className="watchbtn" onClick={()=>setWatchOpen(o=>!o)}>★ 保留股（{watch.length}）</button>
-        <button className="watchbtn" onClick={()=>setScrOpen(o=>!o)}>⚙ 篩選</button>
+        <button className={"watchbtn"+(scrOpen?" active":"")} onClick={()=>setScrOpen(o=>!o)}>⚙ 篩選</button>
         <div className="modebtns">
-          <button className={"watchbtn"+(mode==="screen"?" active":"")} onClick={()=>setMode("screen")}>⚡ 快速瀏覽</button>
-          <button className={"watchbtn"+(mode==="detail"?" active":"")} onClick={()=>setMode("detail")}>▦ 完整模式</button>
+          <button className={"watchbtn"+(mode==="screen"&&!scrOpen?" active":"")} onClick={()=>{setMode("screen");setScrOpen(false);}}>⚡ 快速瀏覽</button>
+          <button className={"watchbtn"+(mode==="detail"&&!scrOpen?" active":"")} onClick={()=>{setMode("detail");setScrOpen(false);}}>▦ 完整模式</button>
         </div>
         <div className="searchwrap">
           <div className="searchbox">

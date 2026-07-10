@@ -203,6 +203,8 @@ def build_screen():
 
     rows = []
     for code in all_codes_with_data():
+        if not (len(code) == 4 and code.isdigit()):
+            continue   # 只收普通股；XBRL 建庫產生的基金/受益證券/英數代號 fin 檔不進篩選表
         obj = load_stock(code)
         qmap = obj.get("q") or {}
         keys = sorted(qmap.keys())
