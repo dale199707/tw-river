@@ -262,10 +262,9 @@ def build_screen():
         bv_p = qmap.get(q_back(latest, 4), {}).get("bvps")
         nav_g = growth(bv_c, bv_p)
         # 估價原料（盤後選股欄位用）：
-        # epsY＝最近完整年度 EPS（eps 為 YTD，取該年 Q4，顯示用）；
-        # peLo/peLo2＝歷年「最低價換算本益比」最低與次低
-        #（該年最低本益比＝lo÷該年EPS＝lo×pe÷ref，因年度 EPS＝ref÷pe；lo/pe/ref 皆須>0）。
-        # PEG/便宜/合理價的成長率 G＝連續四季 EPS 成長率＝既有 epsG（近4季 vs 前4季），前端直接取用
+        # epsY＝最近完整年度 EPS（eps 為 YTD，取該年 Q4；本益成長比的成長率分母）；
+        # peLo/peLo2＝歷年「年度平均本益比」最低與次低（data/price 年度 pe，pe>0）。
+        # 便宜/合理價的 G＝連續四季 EPS 成長率＝既有 epsG（近4季 vs 前4季），前端直接取用
         yl = int(latest[:4])
         eps_y = None
         for y in (yl, yl - 1):
@@ -278,11 +277,7 @@ def build_screen():
         if pf.exists():
             try:
                 ydata = json.loads(pf.read_text(encoding="utf8")).get("y") or {}
-                for e in ydata.values():
-                    if (e and e.get("pe") and e["pe"] > 0 and e.get("lo") and e["lo"] > 0
-                            and e.get("ref") and e["ref"] > 0):
-                        pes.append(e["lo"] * e["pe"] / e["ref"])
-                pes.sort()
+                pes = sorted(e["pe"] for e in ydata.values() if e and e.get("pe") and e["pe"] > 0)
             except Exception:
                 pes = []
         rows.append({"c": code, "q": latest, "debt": debt_y, "dep": dep_y,
