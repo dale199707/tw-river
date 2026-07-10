@@ -131,7 +131,7 @@ const snapKey = () => {
   const t = new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Taipei"}));
   const d = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
   const h = t.getHours();
-  return `twri-snap-${d}-${h<14?"a":h<18?"h"+h:"b"}`;
+  return `twri-snap2-${d}-${h<14?"a":h<18?"h"+h:"b"}`;
 };
 
 const cacheGet = k => { try{ const s=localStorage.getItem(k); return s?JSON.parse(s):null; }catch(e){ return null; } };
@@ -162,10 +162,14 @@ async function loadSnapshots(){
   let snap;
   if(c){ snap=c; }
   else{
-    const [info,bwi,avg] = await Promise.all([
+    /* 上櫃：TPEX 擋 Cloudflare 出口且端點無 CORS，Worker 代理與瀏覽器直連皆不可行；
+       改讀 Actions 每日產生的同源靜態檔 data/tpex_snap.json（--tpex-snap）。
+       抓取失敗時退化為僅上市，快照鍵換代後重抓。上櫃收盤＝每日 Actions 跑完後的資料日（非即時）。 */
+    const [info,bwi,avg,osnap] = await Promise.all([
       fetchJSON(`${PROXY}/openapi/v1/opendata/t187ap03_L`),
       fetchJSON(`${PROXY}/openapi/v1/exchangeReport/BWIBBU_ALL`),
       fetchJSON(`${PROXY}/openapi/v1/exchangeReport/STOCK_DAY_AVG_ALL`),
+      fetchJSON(`data/tpex_snap.json`).catch(()=>null),
     ]);
     const companies = info.map(r=>({
       code:r["公司代號"], name:r["公司簡稱"]||r["公司名稱"], full:r["公司名稱"],
@@ -173,12 +177,21 @@ async function loadSnapshots(){
       chair:r["董事長"]||"—",
       capital:num(r["實收資本額"]),
       est:r["成立日期"], ipo:r["上市日期"],
-    }));
+      market:"twse",
+    })).concat(((osnap&&osnap.companies)||[]).map(r=>({
+      code:r.c, name:r.n||r.f, full:r.f,
+      ind:INDUSTRY[r.i]||r.i||"—",
+      chair:r.ch||"—",
+      capital:r.cap,
+      est:r.est, ipo:r.ipo,
+      market:"tpex",
+    })));
     const quotes = {};
     bwi.forEach(r=>{ quotes[r.Code]={pe:num(r.PEratio),pb:num(r.PBratio),yield:num(r.DividendYield)}; });
     avg.forEach(r=>{ const q=quotes[r.Code]||(quotes[r.Code]={}); q.close=num(r.ClosingPrice); q.mavg=num(r.MonthlyAveragePrice); });
+    if(osnap&&osnap.q){ Object.keys(osnap.q).forEach(cd=>{ const s=osnap.q[cd]; quotes[cd]={pe:s.pe,pb:s.pb,yield:s.yield,close:s.close}; }); }
     snap = {companies,quotes};
-    Object.keys(localStorage).filter(k=>k.startsWith("twri-snap-")&&k!==key).forEach(k=>localStorage.removeItem(k));
+    Object.keys(localStorage).filter(k=>k.startsWith("twri-snap")&&k!==key).forEach(k=>localStorage.removeItem(k));
     cacheSet(key,snap);
   }
   const today = await loadToday();
@@ -252,7 +265,28 @@ async function loadPriceStatic(code){
   }catch(e){ priceMem.set(code,null); return null; }
 }
 
-async function loadHistory(code,years,quote){
+/* 上櫃當年逐月（data/tpex_ytd.json，Actions 每日累計）：
+   {"year","last","m":{code:{"月":{hi,lo,sum,n}}}}，月均=sum/n（同 pipeline mean(closes) 語意） */
+let ytdMem;
+async function loadTpexYtd(){
+  if(ytdMem!==undefined) return ytdMem;
+  try{
+    const r=await fetch(`data/tpex_ytd.json`,{cache:"no-store"});
+    ytdMem=r.ok?await r.json():null;
+  }catch(e){ ytdMem=null; }
+  return ytdMem;
+}
+function tpexYearPrice(ytd,code,nowY){
+  if(!ytd||ytd.year!==nowY||!ytd.m||!ytd.m[code]) return null;
+  const mm=ytd.m[code];
+  const months=Object.keys(mm).map(k=>{const v=mm[k];return {mon:+k,hi:v.hi,lo:v.lo,avg:v.n?v.sum/v.n:null};})
+    .filter(m=>m.hi!=null&&m.lo!=null&&m.avg!=null).sort((a,b)=>a.mon-b.mon);
+  if(!months.length) return null;
+  return {hi:Math.max(...months.map(m=>m.hi)),lo:Math.min(...months.map(m=>m.lo)),
+          avg:months.reduce((s,m)=>s+m.avg,0)/months.length,months};
+}
+
+async function loadHistory(code,years,quote,market){
   const nowY=years[years.length-1];
   const cached={};
   let allCached=true;
@@ -279,15 +313,21 @@ async function loadHistory(code,years,quote){
     if(!cached[nowY]){
       for(let attempt=0;attempt<2;attempt++){
         try{
-          const bundle=await fetchJSON(`${PROXY}/bundle?stockNo=${code}&from=${nowY}&to=${nowY}`);
-          const raw=(bundle.years&&bundle.years[nowY])||{};
-          const price=parseYearPrice(raw.price);
+          let price=null,raw={};
+          if(market==="tpex"){
+            /* 上櫃當年：同源靜態 ytd 檔（全站僅載一次）；ratio/ref 用快照 */
+            price=tpexYearPrice(await loadTpexYtd(),code,nowY);
+          }else{
+            const bundle=await fetchJSON(`${PROXY}/bundle?stockNo=${code}&from=${nowY}&to=${nowY}`);
+            raw=(bundle.years&&bundle.years[nowY])||{};
+            price=parseYearPrice(raw.price);
+          }
           if(price){
             let ratio=null,refPrice=null;
-            if(quote&&quote.pe!=null){
+            if(quote&&(market==="tpex"?(quote.pe!=null||quote.pb!=null||quote.yield!=null):quote.pe!=null)){
               ratio={pe:quote.pe,pb:quote.pb,yield:quote.yield};
               refPrice=quote.close;
-            }else{
+            }else if(market!=="tpex"){
               ratio=parseMonthRatio(raw.ratio)||parseMonthRatio(raw.ratioPrev);
               if(ratio){
                 const refMon=price.months[price.months.length-1].mon;
@@ -306,6 +346,19 @@ async function loadHistory(code,years,quote){
     /* 靜態檔存在但整段無資料（異常）→ 落回完整 /bundle */
   }
 
+  /* fallback（上櫃）：靜態檔未涵蓋（如新掛牌）只取當年（ytd 檔），歷史年待 pipeline 月更補齊 */
+  if(market==="tpex"){
+    const out=years.map(y=>cached[y]||null);
+    if(!cached[nowY]){
+      const price=tpexYearPrice(await loadTpexYtd(),code,nowY);
+      if(price){
+        const ratio=(quote&&(quote.pe!=null||quote.pb!=null||quote.yield!=null))?{pe:quote.pe,pb:quote.pb,yield:quote.yield}:null;
+        const d=buildYearData(nowY,price,ratio,ratio?quote.close:null);
+        if(d){ cacheSet(`twri-y-${code}-${nowY}`,d); out[out.length-1]=d; }
+      }
+    }
+    return out;
+  }
   /* fallback：靜態檔未涵蓋此代號（如新上市、回補未完）時走原完整 /bundle 路徑。
      TWSE 偶發限流時 bundle 會整包空回，自動重試最多 3 次（修正版 Worker 對失敗不快取，重試即有效） */
   let out=null;
@@ -731,9 +784,9 @@ function App(){
     loadFin(c.code).then(f=>{ if(abortRef.current===myRun){ setFin(f); setFinLoading(false); } }).catch(()=>{ if(abortRef.current===myRun) setFinLoading(false); });
     const nowY=new Date().getFullYear();
     const years=[]; for(let y=nowY-YEARS_BACK+1;y<=nowY;y++) years.push(y);
-    setProg({done:1,total:2,msg:`向 TWSE 取得 ${c.name} 近 ${YEARS_BACK} 年資料…`});
+    setProg({done:1,total:2,msg:`取得 ${c.name} 近 ${YEARS_BACK} 年資料…`});
     try{
-      const out=await loadHistory(c.code,years,quote);
+      const out=await loadHistory(c.code,years,quote,c.market);
       if(abortRef.current!==myRun) return;
       if(out.every(d=>d==null)) setErr(`「${c.name}」查無歷史股價資料（可能是新上市或代號有誤）。`);
       else setHist({years,data:out});
@@ -751,7 +804,7 @@ function App(){
     if(!q) return;
     const c=snap.companies.find(x=>x.code===q)||snap.companies.find(x=>x.name===q||x.full===q)||sugg[0];
     if(c) pick(c);
-    else setErr(`找不到「${q}」。目前僅支援上市（TWSE）股票，上櫃股票尚未支援。`);
+    else setErr(`找不到「${q}」。請確認代號或名稱（已支援上市與上櫃普通股）。`);
   };
 
   const finRows=useMemo(()=>finQuarters(fin),[fin]);
@@ -1074,7 +1127,7 @@ function App(){
       const years=[]; for(let y=nowY-YEARS_BACK+1;y<=nowY;y++) years.push(y);
       for(const c of targets){
         if(cancelled) return;
-        try{ await Promise.all([loadHistory(c.code,years,snap.quotes[c.code]||{}),loadFin(c.code)]); }catch(e){}
+        try{ await Promise.all([loadHistory(c.code,years,snap.quotes[c.code]||{},c.market),loadFin(c.code)]); }catch(e){}
       }
     })();
     return ()=>{cancelled=true;};
@@ -1735,7 +1788,7 @@ function App(){
               hiLabel="高檔殖利率（低%）" loLabel="低檔殖利率（高%）"/>
           </div>
           <div className="note" style={{marginTop:12}}>
-            資料來源：臺灣證券交易所（openapi.twse.com.tw、www.twse.com.tw）。歷年 EPS／淨值／股息係以各年 12 月（當年度取最近月份）之月均本益比、淨值比、殖利率與月均價回推，與財報實際數字可能有小幅差異。本工具僅供個人研究參考，非投資建議。
+            資料來源：臺灣證券交易所（openapi.twse.com.tw、www.twse.com.tw）、證券櫃檯買賣中心（www.tpex.org.tw）。歷年 EPS／淨值／股息係以各年 12 月（當年度取最近月份）之月均本益比、淨值比、殖利率與月均價回推，與財報實際數字可能有小幅差異。本工具僅供個人研究參考，非投資建議。
           </div>
         </React.Fragment>
       )}

@@ -1,0 +1,36 @@
+name: tpexsnap
+
+on:
+  schedule:
+    - cron: "40 8 * * 1-5"   # 平日 16:40 台北（UTC 08:40），TPEX 盤後資料發佈後
+  workflow_dispatch: {}
+
+concurrency:
+  group: tpexsnap
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  snap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 上櫃每日快照＋當年逐月累計
+        run: python3 pipeline/price_ingest.py --tpex-snap --delay 2
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/tpex_snap.json data/tpex_ytd.json
+          if git diff --cached --quiet; then
+            echo "no changes"
+            exit 0
+          fi
+          git commit -m "tpexsnap: 上櫃每日快照 $(date -u +%Y-%m-%d)"
+          git pull --rebase -X theirs
+          git push
