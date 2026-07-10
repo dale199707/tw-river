@@ -500,10 +500,12 @@ def tpex_scan_year(fetcher, year, codes):
     return out
 
 
-def tpex_fetch_companies():
-    """上櫃公司完整清單（openapi，英文欄位、字串常帶尾隨空格）。回傳 snap 用精簡物件列表。"""
-    state, j = http_get_json(TPEX_COMPANIES)
+def tpex_fetch_companies(fetcher):
+    """上櫃公司完整清單（openapi，英文欄位、字串常帶尾隨空格）。回傳 snap 用精簡物件列表。
+    走 Fetcher（重試＋階梯降溫）；失敗回 None 並印實際錯誤（Actions runner IP 品質不一，供診斷）。"""
+    state, j = fetcher.get(TPEX_COMPANIES)
     if state != "ok" or not isinstance(j, list):
+        print(f"  公司清單 state={state} detail={str(j)[:200]}", flush=True)
         return None
     out = []
     for r in j:
@@ -532,14 +534,25 @@ def run_tpex_snap(args):
                            sum=收盤加總、n=交易日數 -> 月均=sum/n（同 tpex_scan_year 的 mean(closes) 語意）
     斷點＝ytd 的 last 日期；「今天」empty（假日/尚未發佈）不推進 last，下次自動續補；
     blocked 中止但已累計日先落檔。重複執行冪等。跨年自動重建當年檔（完結年由 pricedata.yml 落地）。"""
-    tz_today = (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).date()
+    tz_today = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=8)).date()
     fetcher = Fetcher(args.delay)
 
     print("取得上櫃公司清單…", flush=True)
-    companies = tpex_fetch_companies()
+    companies = tpex_fetch_companies(fetcher)
     if companies is None:
-        print("!! 公司清單抓取失敗，中止（不寫檔）")
-        sys.exit(2)
+        # 清單極少變動：失敗時沿用舊 snap 的清單，不因此中止每日更新（僅首次執行且無舊檔才中止）
+        old_snap = None
+        if TPEX_SNAP.exists():
+            try:
+                old_snap = json.loads(TPEX_SNAP.read_text())
+            except Exception:
+                old_snap = None
+        if old_snap and old_snap.get("companies"):
+            companies = old_snap["companies"]
+            print(f"!! 公司清單抓取失敗，沿用舊 snap 清單（{len(companies)} 檔）續跑", flush=True)
+        else:
+            print("!! 公司清單抓取失敗且無舊 snap 可沿用，中止（不寫檔）")
+            sys.exit(2)
     codes = {c["c"] for c in companies}
     print(f"上櫃普通股 {len(companies)} 檔", flush=True)
 
@@ -637,7 +650,7 @@ def run_tpex_snap(args):
             continue
         q[code] = {"pe": pe, "pb": pb, "yield": yl, "close": close}
     snap = {
-        "updated": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
+        "updated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M"),
         "date": date_str,
         "companies": companies,
         "q": q,
