@@ -1,8 +1,9 @@
 # CLAUDE.md — tw-river 台股估價河流圖
 
-> 交接檔（v10，2026-07-09）。新對話／Claude Code 請先完整讀完本檔再動手。
-> **當前第一要務：歷史價格落地收尾（規格與部署順序見「歷史價格落地專案」章）——程式三件已實作驗證完，待 probe→抽測→部署→全量回補。**
-> XBRL 建庫已完成（33 季全部入庫、上市＋上櫃、已 push 部署），規格章節保留精簡版供每季更新參考。
+> 交接檔（v11，2026-07-10）。新對話／Claude Code 請先完整讀完本檔再動手。
+> **當前第一要務：上櫃（TPEX）前端支援**——價格資料已全數落地（上市＋上櫃 data/price），
+> 剩 (a) 公司清單/快照合併（公司加 market 欄）(b) /today 加上櫃當日收盤 (c) 上櫃股利 TYPEK=otc。
+> 規格與已驗證端點見「交接時狀態」待辦 1。歷史價格落地全案已完成（見專章，含 TPEX 限流實戰知識）。
 
 ## 專案定位
 
@@ -47,56 +48,32 @@ python3 pipeline/fetch_mops.py --build-screen
 
 ---
 
-## 歷史價格落地專案（第一要務，2026-07-09 已實作待部署）
+## 歷史價格落地（✅ 全案完成，2026-07-10）
 
-### 目標與設計
-河流圖九年歷史資料改為同源靜態檔，前端不再為每檔股票打 ~19 個 TWSE 上游請求，根治快速瀏覽連逛觸發限流。當年資料仍走 `/bundle` 即時（縮為 `from=to=當年`，每檔僅 2–3 上游請求且邊緣快取）。
+### 完成狀態
+- **上市（TWSE）**：~1,086 檔 × 10 完結年度（FMSRFK＋BWIBBU 逐檔逐年），被擋待重試 0
+- **上櫃（TPEX）**：891 檔 × 10 完結年度（2016–2025，逐日全市場掃描），未完成年度空
+- 前端歷史年讀 `data/price/{code}.json`、當年走 /bundle（from=to=當年）、缺檔 fallback 原路徑——已部署驗證
+- `pricedata.yml` 每月 6 日 05:30 台北跑 `--update`（上市）＋`--tpex-update`（上櫃）；Actions runner 無本地斷點檔時以 `year_on_disk()`（抽 8 檔含該年鍵）判定年度完成，避免全重掃；每年 1 月自動補前一完結年並修剪視窗外舊年
+- 清理已完成：fetch_mops.py 656→278 行（僅剩股利＋build_screen，`--update`=近兩年股利＋build_screen）、findata.yml 改股利季更（4/5/8/11 月 16 日）並已重新 Enable、`data/fin_progress.json` 已自 repo 移除
 
-### 產出（本次交付，狀態見「交接時狀態」）
-1. **`pipeline/price_ingest.py`**：FMSRFK 逐月高低均＋BWIBBU 年末（12 月）PE/PB/殖利率 → `data/price/{code}.json`
-2. **`.github/workflows/pricedata.yml`**：每月 6 日 05:30 台北跑 `--update`
-3. **`index.html` loadHistory 改造**：歷史年讀靜態檔、當年 /bundle 即時、靜態檔缺→整段落回原 /bundle 路徑（已 Babel 7.26.4 驗證）
+### data/price/{code}.json 格式（上市上櫃同一格式，前端零區分）
+`{"code","updated","y":{"2018":{hi,lo,avg,pe,pb,yield,ref}|null,...}}`——只存完結年度；null=已查證無資料；
+ref=12 月月均價；欄位對齊 `buildYearData(y,{hi,lo,avg},{pe,pb,yield},ref)`。檔案本身即斷點、merge 冪等。
 
-### data/price/{code}.json 格式
+### price_ingest.py 指令備忘
 ```
-{"code":"2330","updated":"YYYY-MM-DD","y":{
-  "2018":{"hi":..,"lo":..,"avg":..,"pe":..,"pb":..,"yield":..,"ref":..},
-  "2017":null,
-  ...}}
+--probe 2330 / --backfill / --update            上市（FMSRFK＋BWIBBU 逐檔）
+--tpex-probe / --tpex-backfill / --tpex-update  上櫃（逐日全市場掃描）
+--codes / --from-year / --delay / --limit / --force
 ```
-- **只存已完結年度**（去年以前，視窗預設今年−10 起）；`null`＝已查證該年無資料（上市前），下次不重抓——**檔案本身即斷點**，中斷重跑冪等
-- 欄位語意與前端既有解析完全對齊：hi/lo/avg＝parseYearPrice 結果；pe/pb/yield＝12 月逐日正值平均（parseMonthRatio）；ref＝12 月月均價（refPrice 語意，缺 avg 用 (hi+lo)/2，無 12 月列用年 avg）。前端以 `buildYearData(y,{hi,lo,avg},{pe,pb,yield},ref)` 直接重建，**公式零改動、數字不漂移**
-- 有價無比率的年份照存（ratio 欄 null）；價抓到但比率被擋→**整年不記**（避免半套資料定型），下次重抓
 
-### price_ingest.py 指令
-```
-python3 pipeline/price_ingest.py --probe 2330                  端點驗證（先跑，貼輸出）
-python3 pipeline/price_ingest.py --backfill --delay 3          一次回補（~1000 檔 × ~19 請求 ≈ 17 小時，建議本機過夜；可 Ctrl-C 隨時中斷續跑）
-python3 pipeline/price_ingest.py --backfill --codes 2330 2313  指定代號抽測
-python3 pipeline/price_ingest.py --backfill --limit 200        分段跑（本次最多處理 200 個有缺年代號）
-python3 pipeline/price_ingest.py --update                      每月增量（Actions；平時近乎 no-op，每年 1 月自動補前一完結年＋修剪視窗外舊年）
-```
-- 代號清單：預設抓 openapi `t187ap03_L`（上市，與前端公司清單同源）；FMSRFK/BWIBBU 為 TWSE 端點，**上櫃代號不適用**（TPEX 歷史價格屬待辦 2，落地進同一 data/price）
-- 限流防護：每請求 delay（預設 3s＋抖動）、單請求重試 ×3、連續 5 次失敗降溫 90s、降溫後仍擋→中止（沿用 MOPS 三態教訓：empty 記 null 定型、blocked 不記錄待重試）
-- 已通過：py_compile、解析函式合成資料單元測試（對齊前端三函式語意）、run_sync 斷點/續傳/修剪整合測試。**尚未實測 TWSE 直連**（本環境無法連），部署前先 --probe
-
-### 前端 loadHistory 新流程
-```
-localStorage 全中 → 直接回
-→ fetch data/price/{code}.json（priceMem 記憶體快取）
-   ├─ 有檔：歷史年 buildYearData(靜態欄位) → 當年 /bundle from=to=nowY（2 次嘗試；quote 有 pe 用即時快照當 ratio，否則用 bundle ratio/ratioPrev）
-   └─ 無檔（404，新上市/回補未完）：落回原完整 /bundle 路徑（含 3 次重試）——先部署前端也安全
-```
-localStorage 年快取鍵 `twri-y-{code}-{y}` 與行為完全不變。
-
-### 部署順序
-1. Dale 跑 `--probe 2330` 貼輸出確認端點直連 OK（格式已知＝Worker 同端點，但 Python 直連未驗證）
-2. `--backfill --codes 2330 2313 2412` 抽測，開網站對照既有河流圖數字
-3. 前端 index.html 先部署（fallback 安全）
-4. `--backfill` 全量本機過夜跑（可分段），完成後 commit data/price（~1000 檔小 JSON）
-5. 啟用 pricedata.yml 月更 workflow
-
----
+### TPEX 端點與限流實戰知識（⚠️ 之後打 TPEX 必讀）
+- **dailyQuotes（新版 API）**：`www/zh-tw/afterTrading/dailyQuotes?date=YYYY/MM/DD&response=json`，歷史可查到 2016+，全市場單日 OHLC；非交易日合法形狀＝**有 tables 鍵但無匹配表**（缺 tables 鍵＝限流頁，必須判 blocked 不可當空，否則月資料默默少算）
+- **pera（舊版 API）**：`web/stock/aftertrading/peratio_analysis/pera_result.php?l=zh-tw&o=json&d={民國}/{MM}/{DD}`，全市場單日 PE/每股股利/股利年度/殖利率/淨值比，105/12 仍有 712 檔
+- **限流行為（2026-07-10 實測）**：夜間/清晨可連跑 ~1,700 請求；白天約每 ~300 請求封一輪 IP、封鎖期 10–30 分鐘，且**連 openapi 公司清單都會一起被封**。對策已內建：`COOLDOWNS=[120,300,600,1800]` 階梯降溫（成功即重置）＋整年原子寫入＋年度斷點，`--delay 3` 放著跑即可自癒
+- 上櫃公司清單：openapi `mopsfin_t187ap03_O`（英文欄位 `SecuritiesCompanyCode`），過濾 4 位純數字＝普通股
+- TWSE 側教訓：delay 1.5 全程僅 3 blocked（比 TPEX 寬鬆得多）
 
 ## 個股消息分頁（2026-07-10 已部署，經 Dale 調整定版）
 
@@ -178,21 +155,19 @@ git 順序教訓：**先 commit → `git pull --rebase -X theirs` → push**。
 - pipeline 改動：py_compile＋合成資料單元測試；新爬蟲端點先 --probe 請 Dale 貼輸出（本環境無法直連 TWSE/MOPS）
 - 部署：Dale 下載檔案 → cp 到 `~/Desktop/tw-river-repo` → add（指定檔案）/commit/pull --rebase/push
 
-## 交接時狀態（2026-07-09）
+## 交接時狀態（2026-07-10 晚）
 
-- ✅ 前端 v8 全部部署（雙模式、六檢驗圖、篩選、當日收盤、河流圖分段/裁邊/負值防護、折線跨缺口、自動重試）
-- ✅ **XBRL 建庫完成**：33 季（2018Q1–2026Q1）全部入庫、上市＋上櫃財報皆有、已 push 部署；`fin_progress.json`／`--retry-missing` 退役（實體清理列待辦 4）；每季更新方式見「XBRL 建庫」章
-- ✅ **歷史價格落地已實作**（規格見專章）：`pipeline/price_ingest.py`＋`pricedata.yml`＋`index.html` loadHistory 改造三件產出完成、單元/整合測試與 Babel 驗證通過；**待 Dale：--probe 驗證直連 → 抽測 → 部署前端 → 全量回補 → 啟用月更**（順序見專章「部署順序」）
+- ✅ 前端 v8＋歷史價格靜態化＋today v3（最新收盤不過濾日期，修午夜盲區）＋消息分頁（雙新聞源）全部部署
+- ✅ XBRL 建庫完成（33 季、上市＋上櫃財報）；每季更新方式見 XBRL 章
+- ✅ **歷史價格落地全案完成**（見專章）：上市＋上櫃 data/price 全數入庫並 push、pricedata.yml 月更（雙市場）就緒、清理 commit 完成、findata workflow 已 Enable（股利季更）
 - ⏳ 待辦（依序）：
-  1. **歷史價格落地收尾**：依專章部署順序執行（probe → 抽測 → 前端部署 → 全量回補 → 啟用 pricedata.yml）
-  2. **上櫃（TPEX）前端支援**（端點已全數 probe 驗證，2026-07-09）：
-     - (b) **河流圖歷史：已實作**於 price_ingest.py（`--tpex-probe`／`--tpex-backfill`／`--tpex-update`）。設計＝**逐日全市場掃描**：`www/zh-tw/afterTrading/dailyQuotes?date=YYYY/MM/DD&response=json`（新版 API、西元日期、歷史可查、非交易日回空表）一天一請求累計每檔每月 hi/lo/均（月均＝日收盤平均）；12 月交易日再打 `web/stock/aftertrading/peratio_analysis/pera_result.php?l=zh-tw&o=json&d={民國}/{MM}/{DD}`（全市場單日 PE/每股股利/股利年度/殖利率/股價淨值比，105/12 仍有 712 檔）取正值平均。一年 ~283 請求涵蓋全部上櫃（vs 每檔每年打 8000+）。代號 universe＝openapi `mopsfin_t187ap03_O`（英文欄位 `SecuritiesCompanyCode`）過濾 4 位純數字。年度斷點 `data/tpex_price_progress.json`（**需加進 .gitignore**）；整年掃完才寫檔＋記斷點，被擋中止年度重掃。輸出寫進同一 `data/price/{code}.json`，前端零改動。單元測試全過、TWSE 回歸過；**待實跑：--tpex-probe（驗 2016 深度＋真實欄位）→ --tpex-backfill（~2830 請求 ≈ 1.2h @1.5s）**
-     - (a) 公司清單/快照：openapi `tpex_mainboard_quotes`（含債券 ETF 如 00679B 需過濾）＋ `mopsfin_t187ap03_O`（公司基本資料，英文欄位、產業別為數字碼、需另找實收資本額欄位）；前端合併兩市場、公司加 market 欄——**未實作**
-     - (c) 當日收盤：/today 加抓 TPEX（openapi quotes 或 dailyQuotes 當日）合併——**未實作**。注意舊端點 `stk_quote_result.php` 無 o=json 時會忽略日期參數回當日
-     - 股利爬蟲加 TYPEK=otc 回補上櫃股利——未實作
-  3. **保留股跨裝置同步／匯出匯入**：先做 JSON 匯出/匯入（零後端），同步選項（Gist token/URL 分享碼/GitHub API）先問使用情境
-  4. **清理（已實作待部署，2026-07-09）**：fetch_mops.py 656→278 行（刪 bulk/detail/retry 整條，僅剩股利＋build_screen；`--update` 重定義＝近兩年股利＋build_screen）；findata.yml 移除 `0 */4` detail cron 與模式機關，僅剩季 cron（4/5/8/11 月 16 日）跑 `--update`、commit 縮窄為 `data/fin data/screen.json`；repo 需 `git rm data/fin_progress.json`。**部署後記得到 Actions 頁把 findata workflow 重新 Enable**（季報更新仍＝手動 XBRL，此 workflow 只管股利）
-  5. 董監持股率（MOPS 董監持股資料集，新爬蟲）；淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸
+  1. **上櫃（TPEX）前端支援**（新對話第一要務）。價格與財報資料都已就位，純前端＋Worker 工作：
+     (a) **公司清單/快照合併**：前端公司清單目前只抓 TWSE openapi `t187ap03_L`；加抓 TPEX `mopsfin_t187ap03_O`（欄位英文：SecuritiesCompanyCode/CompanyName/CompanyAbbreviation/SecuritiesIndustryCode[數字碼]/Chairman/DateOfListing/ParValueOfCommonStock…，**實收資本額欄位名需再確認**），公司物件加 `market:"twse"|"tpex"` 欄；快照（當日 PE/PB/殖利率）：上櫃候選 openapi `tpex_mainboard_peratio_analysis`（存在性需 probe）或 pera 當日；上櫃與上市代號不重疊，合併直接 concat
+     (b) **/today 加上櫃**：Worker /today 目前只抓 TWSE STOCK_DAY_ALL；加抓 TPEX 當日收盤（openapi `tpex_mainboard_quotes`，英文欄位 Close/SecuritiesCompanyCode，**含債券 ETF 如 00679B 需過濾**）合併進同一 close map。沿 v3 語意：回實際資料日期、不過濾
+     (c) **河流圖/位階/財務指標**：data/price 與 data/fin 已含上櫃，公司接上後歷史年應直接能用——但**當年價格**：上櫃代號打 /bundle（TWSE 端點）會回空，當年需改走 TPEX（tradingStock 單股逐日或 dailyQuotes 當日），設計時決定
+     (d) 上櫃股利：fetch_mops.py 股利爬蟲加 `TYPEK=otc` 跑一輪回補（先 --probe-div 驗證 otc 參數）
+  2. **保留股跨裝置同步／匯出匯入**：先做 JSON 匯出/匯入（零後端），同步選項先問使用情境
+  3. 董監持股率（MOPS 新爬蟲）；淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸
 
 ## Dale 的專案慣例（務必遵守）
 
