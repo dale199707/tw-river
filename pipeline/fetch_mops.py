@@ -201,6 +201,22 @@ def build_screen():
         prev = qmap.get(f"{y}Q{s-1}", {}).get(field)
         return (v - prev) if prev is not None else None
 
+    def q_back(key, n):
+        """季別標籤往前推 n 季（如 2026Q1 往前 4 季 = 2025Q1）"""
+        y, s = int(key[:4]), int(key[5])
+        idx = y * 4 + (s - 1) - n
+        return f"{idx // 4}Q{idx % 4 + 1}"
+
+    def sum4(qmap, quarters, field):
+        vals = [dec(qmap, k, field) for k in quarters]
+        return sum(vals) if all(v is not None for v in vals) else None
+
+    def growth(cur, prev):
+        """成長率%；基期須為正（虧轉盈/資料不足回 None，盤後選股不列入）"""
+        if cur is None or prev is None or prev <= 0:
+            return None
+        return round((cur / prev - 1) * 100, 1)
+
     rows = []
     for code in all_codes_with_data():
         if not (len(code) == 4 and code.isdigit()):
@@ -231,7 +247,21 @@ def build_screen():
             debt_y = round(((stb or 0) + (ltb or 0)) / ni4, 2)
         if ppe is not None and dep4 is not None and dep4 > 0:
             dep_y = round(ppe / dep4, 2)
-        rows.append({"c": code, "q": keys[-1], "debt": debt_y, "dep": dep_y})
+        # 盤後選股指標：成長率＝近4季 vs 其前4季（需連續8季可還原單季值）
+        latest = keys[-1]
+        last8 = [q_back(latest, i) for i in range(7, -1, -1)]
+        cur4, prev4 = last8[4:], last8[:4]
+        rev_g = growth(sum4(qmap, cur4, "rev"), sum4(qmap, prev4, "rev"))
+        ni_c = sum4(qmap, cur4, "ni")
+        ni_g = growth(ni_c, sum4(qmap, prev4, "ni"))
+        eps_g = growth(sum4(qmap, cur4, "eps"), sum4(qmap, prev4, "eps"))
+        eq = qmap.get(latest, {}).get("eq")
+        roe = round(ni_c / eq * 100, 1) if ni_c is not None and eq and eq > 0 else None
+        bv_c = qmap.get(latest, {}).get("bvps")
+        bv_p = qmap.get(q_back(latest, 4), {}).get("bvps")
+        nav_g = growth(bv_c, bv_p)
+        rows.append({"c": code, "q": latest, "debt": debt_y, "dep": dep_y,
+                     "revG": rev_g, "niG": ni_g, "epsG": eps_g, "roe": roe, "navG": nav_g})
     out = {"updated": date.today().isoformat(), "rows": rows}
     (DATA_DIR / "screen.json").write_text(
         json.dumps(out, separators=(",", ":"), ensure_ascii=False), encoding="utf8")

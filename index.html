@@ -755,6 +755,8 @@ function App(){
   const [watchGrp,setWatchGrp]=useState("全部");
   const [browseWatch,setBrowseWatch]=useState(false);
   const [scrOpen,setScrOpen]=useState(false);
+  const [pickOpen,setPickOpen]=useState(false);
+  const [pickSort,setPickSort]=useState({k:"epsG",d:-1});
   const [scrData,setScrData]=useState(null);
   const [scrErr,setScrErr]=useState(null);
   const [fDep,setFDep]=useState("");
@@ -1062,12 +1064,12 @@ function App(){
     if(!stock) return;
     setKeepMenu(m=>!m);   /* ☆ 加入群組；★ 開同一選單切換群組/取消保留（不再一鍵移除） */
   };
-  const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c){ setScrOpen(false); pick(c); } };
+  const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c){ setScrOpen(false); setPickOpen(false); pick(c); } };
   useEffect(()=>{ setKeepMenu(false); },[stock]);
 
   /* ===== 篩選（data/screen.json，pipeline 產生） ===== */
   useEffect(()=>{
-    if(!scrOpen||scrData) return;
+    if((!scrOpen&&!pickOpen)||scrData) return;
     fetch("data/screen.json",{cache:"no-store"})
       .then(r=>{ if(!r.ok) throw new Error("尚未產生篩選資料（screen.json），請先跑 pipeline --build-screen"); return r.json(); })
       .then(setScrData)
@@ -1092,6 +1094,37 @@ function App(){
     });
     return rows;
   },[scrData,snap,fDep,fDebt,scrSort]);
+  /* 盤後選股：五條件全過（營收/盈餘/EPS/NAV 成長 >0、ROE>0、償債年數<5）。
+     成長率＝近4季 vs 前4季（需連續8季，虧轉盈與資料不足者 null 不列入）；ROE=近4季純益/最新股東權益；
+     NAV成長＝每股淨值 vs 一年前（ROE 穩定下 NAV 成長 -> EPS 成長，ROE×NAV=EPS）。 */
+  const pickRows=useMemo(()=>{
+    if(!scrData||!snap) return null;
+    const names={}; snap.companies.forEach(c=>{names[c.code]=c.name;});
+    let rows=scrData.rows.filter(r=>
+      r.revG!=null&&r.revG>0&&
+      r.niG!=null&&r.niG>0&&
+      r.epsG!=null&&r.epsG>0&&
+      r.roe!=null&&r.roe>0&&
+      r.navG!=null&&r.navG>0&&
+      r.debt!=null&&r.debt>=0&&r.debt<5
+    ).map(r=>({...r,name:names[r.c]||"—"}));
+    const {k,d}=pickSort;
+    rows.sort((a,b)=>{
+      const va=a[k],vb=b[k];
+      if(va==null&&vb==null) return a.c<b.c?-1:1;
+      if(va==null) return 1;
+      if(vb==null) return -1;
+      if(va<vb) return -d;
+      if(va>vb) return d;
+      return a.c<b.c?-1:1;
+    });
+    return rows;
+  },[scrData,snap,pickSort]);
+  const pickTh=(k,label)=>(
+    <th className="sortth" onClick={()=>setPickSort(s=>({k,d:s.k===k?-s.d:1}))}>
+      {label}{pickSort.k===k?(pickSort.d===1?" ▲":" ▼"):""}
+    </th>
+  );
   const scrTh=(k,label)=>(
     <th className="sortth" onClick={()=>setScrSort(s=>({k,d:s.k===k?-s.d:1}))}>
       {label}{scrSort.k===k?(scrSort.d===1?" ▲":" ▼"):""}
@@ -1165,10 +1198,11 @@ function App(){
       <div className="topbar">
         <h1>台股估價河流圖</h1>
         <button className="watchbtn" onClick={()=>setWatchOpen(o=>!o)}>★ 保留股（{watch.length}）</button>
-        <button className={"watchbtn"+(scrOpen?" active":"")} onClick={()=>setScrOpen(o=>!o)}>⚙ 篩選</button>
+        <button className={"watchbtn"+(scrOpen?" active":"")} onClick={()=>{setScrOpen(o=>!o);setPickOpen(false);}}>⚙ 篩選</button>
+        <button className={"watchbtn"+(pickOpen?" active":"")} onClick={()=>{setPickOpen(o=>!o);setScrOpen(false);}}>◎ 盤後選股</button>
         <div className="modebtns">
-          <button className={"watchbtn"+(mode==="screen"&&!scrOpen?" active":"")} onClick={()=>{setMode("screen");setScrOpen(false);}}>⚡ 快速瀏覽</button>
-          <button className={"watchbtn"+(mode==="detail"&&!scrOpen?" active":"")} onClick={()=>{setMode("detail");setScrOpen(false);}}>▦ 完整模式</button>
+          <button className={"watchbtn"+(mode==="screen"&&!scrOpen&&!pickOpen?" active":"")} onClick={()=>{setMode("screen");setScrOpen(false);setPickOpen(false);}}>⚡ 快速瀏覽</button>
+          <button className={"watchbtn"+(mode==="detail"&&!scrOpen&&!pickOpen?" active":"")} onClick={()=>{setMode("detail");setScrOpen(false);setPickOpen(false);}}>▦ 完整模式</button>
         </div>
         <div className="searchwrap">
           <div className="searchbox">
@@ -1286,7 +1320,45 @@ function App(){
         </div>
       )}
 
-      {stock&&!scrOpen&&(
+      {pickOpen&&(
+        <div className="card">
+          <div className="cardtitle" style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
+            <span>盤後選股</span>
+            <span style={{fontSize:12.5,color:"var(--dim)",fontWeight:400}}>營收成長＋盈餘成長＋EPS 成長＋ROE＞0 且 NAV 成長＋償債年數＜5 年</span>
+          </div>
+          {scrErr?(
+            <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>{scrErr}</div>
+          ):!pickRows?(
+            <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>載入中…</div>
+          ):(
+            <React.Fragment>
+              <div className="note" style={{marginTop:0}}>五條件全數通過共 {pickRows.length} 檔{pickRows.length>300?"（僅顯示前 300 檔）":""}。成長率＝近 4 季 vs 前 4 季（需連續 8 季財報；虧轉盈與資料不足者不列入）；ROE＝近 4 季純益÷最新股東權益；NAV 成長＝每股淨值 vs 一年前——ROE 穩定下，NAV 成長即帶動 EPS 成長（ROE×NAV＝EPS）。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
+              <div className="tablewrap">
+                <table className="pricetable small mono">
+                  <thead><tr>{pickTh("c","股號")}<th>股名</th><th>最新季</th>{pickTh("revG","營收成長")}{pickTh("niG","盈餘成長")}{pickTh("epsG","EPS成長")}{pickTh("roe","ROE")}{pickTh("navG","NAV成長")}{pickTh("debt","償債年數")}</tr></thead>
+                  <tbody>
+                    {pickRows.slice(0,300).map(r=>(
+                      <tr key={r.c} style={{cursor:"pointer"}} onClick={()=>openKept(r.c)}>
+                        <td>{r.c}</td>
+                        <td>{r.name}</td>
+                        <td>{r.q}</td>
+                        <td>{fmt(r.revG,1)}%</td>
+                        <td>{fmt(r.niG,1)}%</td>
+                        <td>{fmt(r.epsG,1)}%</td>
+                        <td>{fmt(r.roe,1)}%</td>
+                        <td>{fmt(r.navG,1)}%</td>
+                        <td>{fmt(r.debt,2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </React.Fragment>
+          )}
+        </div>
+      )}
+
+      {stock&&!scrOpen&&!pickOpen&&(
         <React.Fragment>
           <div className="card">
             <div className="stockhead" style={{marginBottom:0}}>
