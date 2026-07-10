@@ -1074,7 +1074,7 @@ function App(){
       .then(r=>{ if(!r.ok) throw new Error("尚未產生篩選資料（screen.json），請先跑 pipeline --build-screen"); return r.json(); })
       .then(setScrData)
       .catch(e=>setScrErr(String(e.message||e)));
-  },[scrOpen,scrData]);
+  },[scrOpen,pickOpen,scrData]);
   const scrRows=useMemo(()=>{
     if(!scrData||!snap) return null;
     const names={}; snap.companies.forEach(c=>{names[c.code]=c.name;});
