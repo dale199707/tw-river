@@ -3,3 +3,4 @@ XBRL/
 data/xbrl_progress.json
 __pycache__/
 *.pyc
+data/tpex_price_progress.json

@@ -19,8 +19,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 每月價格增量更新
+      - name: 每月價格增量更新（上市 TWSE）
         run: python3 pipeline/price_ingest.py --update --delay 3
+
+      - name: 每月價格增量更新（上櫃 TPEX）
+        run: python3 pipeline/price_ingest.py --tpex-update --delay 3
 
       - name: Commit and push
         run: |

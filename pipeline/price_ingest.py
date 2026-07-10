@@ -45,8 +45,8 @@ HEADERS = {
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PRICE_DIR = ROOT / "data" / "price"
 
-BLOCK_THRESHOLD = 5      # 連續 blocked 幾次後降溫一次
-COOLDOWN_SEC = 90        # 降溫秒數；降溫後仍立即再擋 -> 中止本次執行
+BLOCK_THRESHOLD = 5              # 連續 blocked 幾次後降溫一次
+COOLDOWNS = [120, 300, 600, 1800]  # 階梯式降溫秒數；末段 30 分鐘可睡過 TPEX 的長封鎖（約每 300 請求封一輪）
 
 
 def num(v):
@@ -63,9 +63,9 @@ def num(v):
 
 
 def http_get_json(url):
-    """回傳 (state, json)。state: ok / empty / blocked。
-    empty = TWSE 正常回應但無資料（stat != OK）-> 視為最終結果記 null。
-    blocked = HTTP 錯誤 / 非 JSON（限流頁）/ 逾時 -> 不記錄，之後重試。"""
+    """回傳 (state, json)。state: ok / blocked。
+    blocked = HTTP 錯誤 / 非 JSON（限流頁）/ 逾時 -> 不記錄，之後重試。
+    空資料（如 TWSE stat != OK、TPEX 無交易日）由呼叫端以 is_empty 判定。"""
     try:
         req = urllib.request.Request(url, headers=HEADERS)
         with urllib.request.urlopen(req, timeout=30) as r:
@@ -76,11 +76,13 @@ def http_get_json(url):
         j = json.loads(raw)
     except ValueError:
         return "blocked", raw[:120]
-    if not isinstance(j, dict):
+    if not isinstance(j, (dict, list)):
         return "blocked", raw[:120]
-    if j.get("stat") != "OK" or not j.get("data"):
-        return "empty", j
     return "ok", j
+
+
+def twse_is_empty(j):
+    return not isinstance(j, dict) or j.get("stat") != "OK" or not j.get("data")
 
 
 def pick_col(fields, keywords):
@@ -153,37 +155,38 @@ class Fetcher:
     def __init__(self, delay):
         self.delay = delay
         self.consecutive_blocked = 0
-        self.cooled = False
+        self.cooldown_i = 0
         self.n_req = 0
         self.n_ok = 0
         self.n_empty = 0
         self.n_blocked = 0
 
-    def get(self, url):
-        """含節流、單請求重試、連擋降溫/中止。回傳 (state, json_or_msg)"""
+    def get(self, url, is_empty=None):
+        """含節流、單請求重試、連擋降溫/中止。回傳 (state, json_or_msg)，state: ok/empty/blocked"""
         for attempt in range(3):
             time.sleep(self.delay + random.random() * 0.5)
             self.n_req += 1
             state, j = http_get_json(url)
             if state != "blocked":
                 self.consecutive_blocked = 0
-                self.cooled = False
-                if state == "ok":
-                    self.n_ok += 1
-                else:
+                self.cooldown_i = 0
+                if is_empty and is_empty(j):
                     self.n_empty += 1
-                return state, j
+                    return "empty", j
+                self.n_ok += 1
+                return "ok", j
             self.n_blocked += 1
             if attempt < 2:
                 time.sleep(self.delay * (attempt + 2))
         self.consecutive_blocked += 1
         if self.consecutive_blocked >= BLOCK_THRESHOLD:
-            if self.cooled:
-                print(f"\n!! 降溫後仍連續被擋（{url}），疑似 IP 限流，中止本次執行。稍後重跑會從斷點續傳。", flush=True)
+            if self.cooldown_i >= len(COOLDOWNS):
+                print(f"\n!! 階梯降溫全部用盡仍連續被擋（{url}），IP 限流未解除，中止本次執行。建議休息 30 分鐘後重跑續補。", flush=True)
                 sys.exit(2)
-            print(f"\n.. 連續 {self.consecutive_blocked} 次失敗，降溫 {COOLDOWN_SEC}s …", flush=True)
-            time.sleep(COOLDOWN_SEC)
-            self.cooled = True
+            sec = COOLDOWNS[self.cooldown_i]
+            self.cooldown_i += 1
+            print(f"\n.. 連續 {self.consecutive_blocked} 次失敗，降溫 {sec}s（第 {self.cooldown_i}/{len(COOLDOWNS)} 次）…", flush=True)
+            time.sleep(sec)
             self.consecutive_blocked = 0
         return "blocked", j
 
@@ -191,7 +194,7 @@ class Fetcher:
 def fetch_year(fetcher, code, year):
     """抓一個代號一個完結年度。回傳 (state, entry_or_None)
     state: ok（有資料）/ empty（該年無資料，記 null）/ blocked（跳過，下次再試）"""
-    st, pj = fetcher.get(f"{BASE}/FMSRFK?date={year}0101&stockNo={code}&response=json")
+    st, pj = fetcher.get(f"{BASE}/FMSRFK?date={year}0101&stockNo={code}&response=json", is_empty=twse_is_empty)
     if st == "blocked":
         return "blocked", None
     if st == "empty":
@@ -199,7 +202,7 @@ def fetch_year(fetcher, code, year):
     price = parse_year_price(pj)
     if not price:
         return "empty", None
-    st, rj = fetcher.get(f"{BASE}/BWIBBU?date={year}1201&stockNo={code}&response=json")
+    st, rj = fetcher.get(f"{BASE}/BWIBBU?date={year}1201&stockNo={code}&response=json", is_empty=twse_is_empty)
     if st == "blocked":
         return "blocked", None       # 價抓到但比率被擋：整年不記，下次重抓（避免半套資料定型）
     ratio = parse_month_ratio(rj) if st == "ok" else None
@@ -317,6 +320,273 @@ def run_sync(args, prune):
         print("!! 有年度因限流被跳過，請稍後重跑同一指令續補（斷點＝檔案本身，冪等）。")
 
 
+
+# ============ TPEX（上櫃）：逐日全市場掃描 ============
+# dailyQuotes（新版 API，西元日期）：一天一請求回全市場 OHLC -> 累計出每檔每月 hi/lo/均
+# pera_result（舊版 API，民國日期）：12 月逐日全市場 PE/PB/殖利率 -> 正值平均（同 parseMonthRatio 語意）
+# 一年 ~261 平日 + ~22 個 12 月交易日 ≈ 283 請求涵蓋全部上櫃股
+TPEX_NEW = "https://www.tpex.org.tw/www/zh-tw/afterTrading"
+TPEX_PERA = "https://www.tpex.org.tw/web/stock/aftertrading/peratio_analysis/pera_result.php"
+TPEX_COMPANIES = "https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O"
+TPEX_PROGRESS = ROOT / "data" / "tpex_price_progress.json"
+
+
+def tpex_pick_table(j, keywords):
+    """從新版 API 回應的 tables 中找出含指定欄位關鍵字且有資料的表"""
+    if not isinstance(j, dict):
+        return None
+    for t in (j.get("tables") or []):
+        f = t.get("fields") or []
+        if t.get("data") and all(any(kw in str(x) for x in f) for kw in keywords):
+            return t
+    return None
+
+
+def tpex_daily_empty(j):
+    """非交易日的合法形狀＝有 tables 鍵但無匹配表；缺 tables 鍵（限流/異常頁）不算空，交由呼叫端判 blocked"""
+    return isinstance(j, dict) and isinstance(j.get("tables"), list) and tpex_pick_table(j, ["代號", "收盤", "最高", "最低"]) is None
+
+
+def tpex_pera_empty(j):
+    return isinstance(j, dict) and isinstance(j.get("tables"), list) and tpex_pick_table(j, ["代號", "本益比", "殖利率", "淨值比"]) is None
+
+
+def tpex_fetch_daily(fetcher, d):
+    """單一交易日全市場行情。回傳 (state, {code:(close,hi,lo)})"""
+    url = f"{TPEX_NEW}/dailyQuotes?date={d.year}/{d.month:02d}/{d.day:02d}&response=json"
+    state, j = fetcher.get(url, is_empty=tpex_daily_empty)
+    if state != "ok":
+        return state, None
+    t = tpex_pick_table(j, ["代號", "收盤", "最高", "最低"])
+    if not t:
+        return "blocked", None
+    f = t["fields"]
+    i_code = pick_col(f, ["代號"])
+    i_close = pick_col(f, ["收盤"])
+    i_hi = pick_col(f, ["最高"])
+    i_lo = pick_col(f, ["最低"])
+    out = {}
+    for row in t["data"]:
+        code = str(row[i_code]).strip()
+        c, h, l = num(row[i_close]), num(row[i_hi]), num(row[i_lo])
+        if code and c is not None and h is not None and l is not None:
+            out[code] = (c, h, l)
+    return "ok", out
+
+
+def tpex_fetch_pera(fetcher, d):
+    """單一交易日全市場 PE/PB/殖利率。回傳 (state, {code:(pe,pb,yield)})"""
+    roc = f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
+    url = f"{TPEX_PERA}?l=zh-tw&o=json&d={roc}"
+    state, j = fetcher.get(url, is_empty=tpex_pera_empty)
+    if state != "ok":
+        return state, None
+    t = tpex_pick_table(j, ["代號", "本益比", "殖利率", "淨值比"])
+    if not t:
+        return "blocked", None
+    f = t["fields"]
+    i_code = pick_col(f, ["代號"])
+    i_pe = pick_col(f, ["本益比"])
+    i_pb = pick_col(f, ["淨值比"])
+    i_y = pick_col(f, ["殖利率"])
+    out = {}
+    for row in t["data"]:
+        code = str(row[i_code]).strip()
+        if code:
+            out[code] = (num(row[i_pe]), num(row[i_pb]), num(row[i_y]))
+    return "ok", out
+
+
+def tpex_load_codes():
+    print("取得上櫃公司清單（openapi mopsfin_t187ap03_O）…", flush=True)
+    state, j = http_get_json(TPEX_COMPANIES)
+    if state != "ok" or not isinstance(j, list):
+        print("!! 上櫃公司清單抓取失敗，中止")
+        sys.exit(2)
+    codes = sorted({str(r.get("SecuritiesCompanyCode", "")).strip() for r in j})
+    codes = [c for c in codes if len(c) == 4 and c.isdigit()]
+    print(f"共 {len(codes)} 個上櫃普通股代號", flush=True)
+    return codes
+
+
+def tpex_weekdays(year):
+    d = datetime.date(year, 1, 1)
+    end = datetime.date(year, 12, 31)
+    while d <= end:
+        if d.weekday() < 5:
+            yield d
+        d += datetime.timedelta(days=1)
+
+
+def tpex_scan_year(fetcher, year, codes):
+    """掃一個完結年度。回傳 (code -> entry|None)。任何一天 blocked 直接中止（Fetcher 已有降溫機制）"""
+    universe = set(codes)
+    monthly = {}          # code -> {mon: {"closes":[], "hi":x, "lo":x}}
+    dec_days = []
+    n_days = 0
+    for d in tpex_weekdays(year):
+        state, day = tpex_fetch_daily(fetcher, d)
+        if state == "blocked":
+            print(f"!! {d} dailyQuotes 連續被擋，中止本年掃描（年度未記完成，重跑續補）", flush=True)
+            return None
+        if state == "empty":
+            continue
+        n_days += 1
+        if d.month == 12:
+            dec_days.append(d)
+        for code, (c, h, l) in day.items():
+            if code not in universe:
+                continue
+            m = monthly.setdefault(code, {}).setdefault(d.month, {"closes": [], "hi": h, "lo": l})
+            m["closes"].append(c)
+            m["hi"] = max(m["hi"], h)
+            m["lo"] = min(m["lo"], l)
+        if n_days % 40 == 0:
+            print(f"  .. {year} 已掃 {n_days} 個交易日｜累計請求 {fetcher.n_req}", flush=True)
+
+    ratios = {}           # code -> {"pe":[], "pb":[], "y":[]}
+    for d in dec_days:
+        state, day = tpex_fetch_pera(fetcher, d)
+        if state == "blocked":
+            print(f"!! {d} pera 連續被擋，中止本年掃描", flush=True)
+            return None
+        if state == "empty":
+            continue
+        for code, (pe, pb, y) in day.items():
+            if code not in universe:
+                continue
+            r = ratios.setdefault(code, {"pe": [], "pb": [], "y": []})
+            if pe is not None and pe > 0:
+                r["pe"].append(pe)
+            if pb is not None and pb > 0:
+                r["pb"].append(pb)
+            if y is not None and y > 0:
+                r["y"].append(y)
+
+    def mean(a):
+        return sum(a) / len(a) if a else None
+
+    out = {}
+    for code in codes:
+        mm = monthly.get(code)
+        if not mm:
+            out[code] = None
+            continue
+        months = [{"mon": mon,
+                   "hi": v["hi"], "lo": v["lo"],
+                   "avg": mean(v["closes"])} for mon, v in sorted(mm.items())]
+        price = {
+            "hi": max(m["hi"] for m in months),
+            "lo": min(m["lo"] for m in months),
+            "avg": mean([m["avg"] for m in months]),
+            "months": months,
+        }
+        r = ratios.get(code, {"pe": [], "pb": [], "y": []})
+        pe, pb, yl = mean(r["pe"]), mean(r["pb"]), mean(r["y"])
+        out[code] = {
+            "hi": price["hi"],
+            "lo": price["lo"],
+            "avg": rnd(price["avg"]),
+            "pe": rnd(pe),
+            "pb": rnd(pb),
+            "yield": rnd(yl),
+            "ref": rnd(ref_price(price)),
+        }
+    return out
+
+
+def tpex_load_progress():
+    if TPEX_PROGRESS.exists():
+        try:
+            return set(json.loads(TPEX_PROGRESS.read_text())["done"])
+        except Exception:
+            return set()
+    return set()
+
+
+def tpex_save_progress(done):
+    TPEX_PROGRESS.write_text(json.dumps({"done": sorted(done)}))
+
+
+def run_tpex_sync(args, prune):
+    now_y = datetime.date.today().year
+    from_y = args.from_year or (now_y - 10)
+    years = [str(y) for y in range(from_y, now_y)]
+    codes = tpex_load_codes()
+    fetcher = Fetcher(args.delay)
+    done = tpex_load_progress()
+    t0 = time.time()
+    n_years = 0
+
+    def year_on_disk(y):
+        """斷點檔遺失時（如 Actions runner）以檔案內容判定年度是否已完成：
+        抽 8 個代號，全部檔案存在且含該年鍵（值或 null）即視為完成（年度為原子寫入）"""
+        sample = codes[:: max(1, len(codes) // 8)][:8]
+        if not sample:
+            return False
+        for c in sample:
+            doc = read_price_file(c)
+            if not doc or y not in doc.get("y", {}):
+                return False
+        return True
+
+    for y in years:
+        if not args.force and (y in done or year_on_disk(y)):
+            if y not in done:
+                done.add(y)
+                tpex_save_progress(done)
+            continue
+        print(f"===== 掃描 {y} 年（全上櫃逐日）=====", flush=True)
+        result = tpex_scan_year(fetcher, int(y), codes)
+        if result is None:
+            break
+        n_with = sum(1 for v in result.values() if v)
+        for code, entry in result.items():
+            doc = read_price_file(code) or {"code": code, "updated": None, "y": {}}
+            doc.setdefault("y", {})
+            doc["y"][y] = entry
+            if prune:
+                for k in [k for k in doc["y"].keys() if k < years[0]]:
+                    del doc["y"][k]
+            write_price_file(code, doc)
+        done.add(y)
+        tpex_save_progress(done)
+        print(f"{y}：有資料 {n_with} 檔、無資料 {len(result) - n_with} 檔｜累計請求 {fetcher.n_req}", flush=True)
+        n_years += 1
+
+    dt = time.time() - t0
+    print("\n===== TPEX 統計 =====")
+    print(f"完成年度 {n_years}｜請求 {fetcher.n_req}（ok {fetcher.n_ok}／empty {fetcher.n_empty}／blocked {fetcher.n_blocked}）｜耗時 {dt/60:.1f} 分")
+    remain = [y for y in years if y not in done]
+    if remain:
+        print(f"!! 未完成年度：{remain}，重跑同指令續補（斷點 data/tpex_price_progress.json）")
+
+
+def run_tpex_probe(args):
+    fetcher = Fetcher(args.delay)
+    probes = [datetime.date(2016, 1, 4), datetime.date(2024, 6, 4)]
+    if args.date:
+        y, m, d = args.date.split("/")
+        probes = [datetime.date(int(y), int(m), int(d))]
+    for d in probes:
+        print(f"\n=== dailyQuotes {d}")
+        state, day = tpex_fetch_daily(fetcher, d)
+        if state == "ok":
+            sample = day.get("5483") or next(iter(day.items()))[1]
+            print(f"OK：{len(day)} 檔｜5483 或首檔 (close,hi,lo)={sample}")
+        else:
+            print(f"{state}")
+        print(f"=== pera {d}")
+        state, day = tpex_fetch_pera(fetcher, d)
+        if state == "ok":
+            sample = day.get("5483") or next(iter(day.items()))[1]
+            print(f"OK：{len(day)} 檔｜5483 或首檔 (pe,pb,yield)={sample}")
+        else:
+            print(f"{state}")
+    codes = tpex_load_codes()
+    print(f"公司清單前 5：{codes[:5]}")
+
+
 def run_probe(args):
     code = args.probe
     year = args.year or (datetime.date.today().year - 1)
@@ -356,9 +626,20 @@ def main():
     ap.add_argument("--from-year", type=int, help="視窗起始年（預設今年-10）")
     ap.add_argument("--delay", type=float, default=3.0, help="每請求間隔秒數（預設 3.0）")
     ap.add_argument("--limit", type=int, help="本次最多處理 N 個有缺年的代號（分段跑）")
+    ap.add_argument("--force", action="store_true", help="TPEX：忽略年度斷點全部重掃")
+    ap.add_argument("--date", help="tpex-probe 指定日期 YYYY/MM/DD")
+    ap.add_argument("--tpex-probe", action="store_true", help="TPEX 端點驗證（先跑，貼輸出）")
+    ap.add_argument("--tpex-backfill", action="store_true", help="TPEX 全上櫃逐年掃描回補")
+    ap.add_argument("--tpex-update", action="store_true", help="TPEX 每月增量（Actions 用）")
     args = ap.parse_args()
 
-    if args.probe:
+    if args.tpex_probe:
+        run_tpex_probe(args)
+    elif args.tpex_backfill:
+        run_tpex_sync(args, prune=False)
+    elif args.tpex_update:
+        run_tpex_sync(args, prune=True)
+    elif args.probe:
         run_probe(args)
     elif args.backfill:
         run_sync(args, prune=False)
