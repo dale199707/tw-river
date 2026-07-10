@@ -1,9 +1,10 @@
 # CLAUDE.md — tw-river 台股估價河流圖
 
-> 交接檔（v11，2026-07-10）。新對話／Claude Code 請先完整讀完本檔再動手。
-> **當前第一要務：上櫃（TPEX）前端支援**——價格資料已全數落地（上市＋上櫃 data/price），
-> 剩 (a) 公司清單/快照合併（公司加 market 欄）(b) /today 加上櫃當日收盤 (c) 上櫃股利 TYPEK=otc。
-> 規格與已驗證端點見「交接時狀態」待辦 1。歷史價格落地全案已完成（見專章，含 TPEX 限流實戰知識）。
+> 交接檔（v12，2026-07-10）。新對話／Claude Code 請先完整讀完本檔再動手。
+> **上櫃（TPEX）前端支援全案已完成**（2026-07-10 晚）：公司清單/快照/當日收盤/當年價格/股利全通，
+> 網站已可查上市＋上櫃普通股。架構走「Actions 每日靜態檔」路線——因 **TPEX 封鎖 Cloudflare 出口 IP
+> 且所有端點無 CORS**（Worker 代理與瀏覽器直連皆不可行），細節見「上櫃前端（TPEX）」專章，之後任何
+> TPEX 相關工作必讀。下一件事見「交接時狀態」待辦。
 
 ## 專案定位
 
@@ -16,7 +17,7 @@
 ## ⚠️ 立即注意事項
 
 1. **`~/Desktop/tw-river-repo/XBRL/` 放著 33 季的原始檔（數 GB），絕對不能 commit**。`.gitignore` 已含 `XBRL/`；任何 git 操作仍只 add 指定檔案、不用 `git add -A`。
-2. findata workflow 目前 **Disabled**。建庫已完成，每 4 小時 detail cron 尚未從 findata.yml 移除（列在待辦 4）。
+2. **TPEX 封鎖 Cloudflare Workers 出口 IP**（302 無限重導向至 /errors，openapi 與 www 端點一體封鎖），且全部端點**無 CORS**。任何上櫃「即時」需求都只能走 Actions 產生靜態檔（Actions/住宅 IP 可正常存取），不要再嘗試 Worker 代理或瀏覽器直連。
 3. `data/fin/*.json` 現以 **XBRL 為主要來源**（33 季全數入庫，上市＋上櫃）；爬蟲舊值僅在 XBRL 無值欄位保留。`div` 陣列仍為股利爬蟲來源，XBRL 不含股利。
 
 ---
@@ -75,6 +76,32 @@ ref=12 月月均價；欄位對齊 `buildYearData(y,{hi,lo,avg},{pe,pb,yield},re
 - 上櫃公司清單：openapi `mopsfin_t187ap03_O`（英文欄位 `SecuritiesCompanyCode`），過濾 4 位純數字＝普通股
 - TWSE 側教訓：delay 1.5 全程僅 3 blocked（比 TPEX 寬鬆得多）
 
+## 上櫃前端（TPEX）（✅ 全案完成，2026-07-10 晚）
+
+### 封鎖實況（決定架構的關鍵，勿重蹈）
+- **Cloudflare Workers 出口被 TPEX 封**：openapi 與 www.tpex.org.tw 一體 302 → /errors 無限迴圈（"Too many redirects"）。與 Google News 擋 Cloudflare 同類
+- **全端點無 CORS**（openapi 三支＋dailyQuotes＋tradingStock 皆無 access-control-allow-origin）→ 瀏覽器直連也不可行
+- **GitHub Actions 出口可正常存取**（已以 tpexprobe workflow 實證，五端點全通）；住宅 IP 也可。Actions runner IP 品質不一（Azure 共用池偶有髒 IP），pipeline 已容錯
+
+### 架構：Actions 每日靜態檔
+- `.github/workflows/tpexsnap.yml`：平日 16:40 台北跑 `price_ingest.py --tpex-snap --delay 2`，commit 兩檔：
+  - `data/tpex_snap.json`：`{"updated","date","companies":[{c,n,f,i,ch,cap,est,ipo}],"q":{code:{pe,pb,yield,close}}}`（891 檔；來源 openapi 公司清單＋pera 當日；close 來自 dailyQuotes）
+  - `data/tpex_ytd.json`：`{"year","last","m":{code:{"月":{hi,lo,sum,n}}}}` 當年逐月累計，月均=sum/n（同 pipeline mean(closes) 語意）
+- `--tpex-snap` 特性：斷點＝ytd 的 last 日期；「今天」empty（假日/未發佈）**不推進** last、隔日自動續補；blocked 中止但已累計日先落檔；重跑冪等；跨年自動重建（完結年由 pricedata.yml 落地 data/price）；公司清單失敗沿用舊 snap 清單續跑（僅首次且無舊檔才中止）
+- **上櫃收盤時效性＝每日 Actions 跑完後（約 16:4x），非即時**；上市維持 Worker /today 即時。此為封鎖下的必要取捨
+- 首跑實績：回補 2026 全年 130 交易日 19 分（含降溫自癒），資料與端點 probe 交叉驗證全對
+
+### 前端接法（index.html）
+- 公司清單：TWSE openapi ＋ `data/tpex_snap.json` concat，公司物件有 `market:"twse"|"tpex"` 欄；quotes 併入 snap 的 q。snap 抓取失敗退化為僅上市
+- `loadHistory(code,years,quote,market)`：歷史年走 data/price（雙市場同格式）；**當年**上市走 /bundle、上櫃讀 `data/tpex_ytd.json`（模組級記憶體快取，全站僅載一次 ~290KB，`tpexYearPrice()` 組月資料）；上櫃當年 ratio/ref 一律用快照。上櫃無靜態檔 fallback（新掛牌）只補當年
+- 快照 localStorage 鍵已升版 `twri-snap2-`（v1 無上櫃需失效）
+- Worker **完全沒動**（repo 原版），v11 期間短暫部署過的 TPEX 版已作廢撤回
+
+### 股利（fetch_mops.py）
+- `fetch_dividends_year(roc, typek)`：TYPEK=sii 上市／otc 上櫃；暖機 per-TYPEK（`_DIV_WARMED` set——v10 清理時誤刪宣告曾致 NameError，已修）
+- `run_dividends` 每年雙市場都抓（merge 冪等）；`--update`（findata.yml 季更）自動涵蓋雙市場
+- `--probe-div 113 --typek otc` 可單測；已回補 105–115 雙市場、寫入 1779 檔
+
 ## 個股消息分頁（2026-07-10 已部署，經 Dale 調整定版）
 
 完整模式第六分頁「消息」（`tab==="news"`，NewsView）——**只有兩塊**：營運新聞＋法說會外連。今日重大訊息欄位做過又移除（Dale 決定不要；t187ap04_L 的知識留存：中文 key 有尾隨空格、日期民國 7 碼、僅當日僅上市）。
@@ -86,18 +113,21 @@ ref=12 月月均價；欄位對齊 `buildYearData(y,{hi,lo,avg},{pe,pb,yield},re
 
 ```
 index.html（單檔 React 18 UMD + Babel 7.26.4 classic，繁中 UI，GitHub Pages）
-├─ 快照（公司/PE/PB/殖利率/收盤）→ Worker /openapi/* → openapi.twse.com.tw（僅前一交易日）
-├─ 當日收盤 ────→ Worker /today（CSV 解析正規化）→ www.twse.com.tw STOCK_DAY_ALL
-├─ 歷年價格/本益比 → 同源靜態 data/price/{code}.json（歷史年）＋ Worker /bundle 僅當年（fallback 全包）
-├─ 財報/股利 ───→ 同源靜態 data/fin/{code}.json（財報＝XBRL 產生；股利＝MOPS 爬蟲）
+├─ 快照（公司/PE/PB/殖利率/收盤）→ 上市：Worker /openapi/* → openapi.twse.com.tw（僅前一交易日）
+│                                  上櫃：同源靜態 data/tpex_snap.json（Actions 每日）
+├─ 當日收盤 ────→ 上市：Worker /today → www.twse.com.tw STOCK_DAY_ALL（即時）
+│                 上櫃：tpex_snap.json 的 close（每日 16:4x 更新，非即時）
+├─ 歷年價格/本益比 → 同源靜態 data/price/{code}.json（雙市場同格式）
+│                    當年：上市走 Worker /bundle、上櫃讀同源靜態 data/tpex_ytd.json
+├─ 財報/股利 ───→ 同源靜態 data/fin/{code}.json（財報＝XBRL；股利＝MOPS 爬蟲，雙市場）
 ├─ 篩選彙總 ───→ 同源靜態 data/screen.json（fetch_mops.py --build-screen）
 └─ 個股消息 ───→ 瀏覽器直連 cnyes 新聞（Worker /news 備援）＋ MOPS 法說會外連
 
-pipeline/fetch_mops.py（股利爬蟲＋build_screen；bulk/detail/retry 已刪除）
+pipeline/fetch_mops.py（股利爬蟲 sii+otc＋build_screen）
 pipeline/xbrl_ingest.py（XBRL 解析器，財報主要來源）
-pipeline/price_ingest.py（歷史價格落地，已實作待部署）
-.github/workflows/findata.yml（Disabled 中）
-worker.js（Worker 原始碼備份）
+pipeline/price_ingest.py（歷史價格落地＋--tpex-snap 每日快照）
+.github/workflows/findata.yml（股利季更）/ pricedata.yml（價格月更）/ tpexsnap.yml（上櫃每日）
+worker.js（Worker 原始碼備份；不含任何 TPEX——TPEX 擋 Cloudflare）
 ```
 
 ## 資料來源與端點（重大踩坑，依重要度）
@@ -126,7 +156,7 @@ worker.js（Worker 原始碼備份）
 - **RiverChart**：填色依連續資料段分段（缺口不橋接）；自動裁掉頭尾全無資料年份（新上市股不留空白）；PE/PB 為負時「目前」虛線不畫（EPS≤0 防護在呼叫端 `judge.pe>0`）
 - **保留股**：`twri-watch`（含 grp 群組），☆ 一律彈群組選單；面板群組 chips＋每列 select；saveWatch 失敗→清 twri-y 快取重試→再失敗 alert
 - **← → 瀏覽**：全市場代號序；「僅在保留股間切換」跟群組篩選；input 聚焦不觸發；背景預抓 [+1,+2,−1]
-- **篩選面板**：讀 data/screen.json；折舊/償債 ≤n（AND）、欄名升降冪、點列開股、>300 截斷。上櫃代號進 screen.json 後，快照查不到股名會顯示 —（TPEX 快照接入前的已知現象）
+- **篩選面板**：讀 data/screen.json；折舊/償債 ≤n（AND）、欄名升降冪、點列開股、>300 截斷。上櫃股名已由 tpex_snap 快照解析（v11「顯示 —」現象已解）
 - **快照快取鍵 snapKey()**：台北時間 <14=a、14–18=h{hh}（每小時重抓等當日收盤）、≥18=b
 - loadFin 有 finMem 記憶體快取；搜尋框 ✕ 清除鈕；載入中保留鈕反灰
 
@@ -155,19 +185,16 @@ git 順序教訓：**先 commit → `git pull --rebase -X theirs` → push**。
 - pipeline 改動：py_compile＋合成資料單元測試；新爬蟲端點先 --probe 請 Dale 貼輸出（本環境無法直連 TWSE/MOPS）
 - 部署：Dale 下載檔案 → cp 到 `~/Desktop/tw-river-repo` → add（指定檔案）/commit/pull --rebase/push
 
-## 交接時狀態（2026-07-10 晚）
+## 交接時狀態（2026-07-10 晚，v12）
 
-- ✅ 前端 v8＋歷史價格靜態化＋today v3（最新收盤不過濾日期，修午夜盲區）＋消息分頁（雙新聞源）全部部署
+- ✅ **上櫃（TPEX）前端支援全案完成**（見專章）：公司清單/快照/當日收盤/當年價格/股利雙市場全通並部署驗證（5483 完整模式抽測通過）
+- ✅ 歷史價格落地全案（雙市場 data/price）＋pricedata.yml 月更＋findata.yml 股利季更（現含 otc）＋tpexsnap.yml 上櫃每日快照，四條自動化全部就緒
 - ✅ XBRL 建庫完成（33 季、上市＋上櫃財報）；每季更新方式見 XBRL 章
-- ✅ **歷史價格落地全案完成**（見專章）：上市＋上櫃 data/price 全數入庫並 push、pricedata.yml 月更（雙市場）就緒、清理 commit 完成、findata workflow 已 Enable（股利季更）
+- ✅ 前端 v9：雙市場快照、loadHistory 分流、消息分頁；Worker 維持原版（無 TPEX）
 - ⏳ 待辦（依序）：
-  1. **上櫃（TPEX）前端支援**（新對話第一要務）。價格與財報資料都已就位，純前端＋Worker 工作：
-     (a) **公司清單/快照合併**：前端公司清單目前只抓 TWSE openapi `t187ap03_L`；加抓 TPEX `mopsfin_t187ap03_O`（欄位英文：SecuritiesCompanyCode/CompanyName/CompanyAbbreviation/SecuritiesIndustryCode[數字碼]/Chairman/DateOfListing/ParValueOfCommonStock…，**實收資本額欄位名需再確認**），公司物件加 `market:"twse"|"tpex"` 欄；快照（當日 PE/PB/殖利率）：上櫃候選 openapi `tpex_mainboard_peratio_analysis`（存在性需 probe）或 pera 當日；上櫃與上市代號不重疊，合併直接 concat
-     (b) **/today 加上櫃**：Worker /today 目前只抓 TWSE STOCK_DAY_ALL；加抓 TPEX 當日收盤（openapi `tpex_mainboard_quotes`，英文欄位 Close/SecuritiesCompanyCode，**含債券 ETF 如 00679B 需過濾**）合併進同一 close map。沿 v3 語意：回實際資料日期、不過濾
-     (c) **河流圖/位階/財務指標**：data/price 與 data/fin 已含上櫃，公司接上後歷史年應直接能用——但**當年價格**：上櫃代號打 /bundle（TWSE 端點）會回空，當年需改走 TPEX（tradingStock 單股逐日或 dailyQuotes 當日），設計時決定
-     (d) 上櫃股利：fetch_mops.py 股利爬蟲加 `TYPEK=otc` 跑一輪回補（先 --probe-div 驗證 otc 參數）
-  2. **保留股跨裝置同步／匯出匯入**：先做 JSON 匯出/匯入（零後端），同步選項先問使用情境
-  3. 董監持股率（MOPS 新爬蟲）；淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸
+  1. **保留股跨裝置同步／匯出匯入**：先做 JSON 匯出/匯入（零後端），同步選項先問使用情境
+  2. 董監持股率（MOPS 新爬蟲）；淨值比/殖利率關注價與 Excel 小差異；股利圖雙 Y 軸
+  3. 觀察項：tpexsnap 平日自動跑幾天確認穩定（偶發髒 runner IP 會自我修復，連續多日失敗才需介入）；8/6 pricedata 首次月更順帶驗證
 
 ## Dale 的專案慣例（務必遵守）
 
