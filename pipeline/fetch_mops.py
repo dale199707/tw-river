@@ -43,6 +43,8 @@ HEADERS = {
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
 
+_DIV_WARMED = set()   # 已暖機的 TYPEK（sii/otc）；656->278 行清理時誤刪，致 --probe-div NameError
+
 
 def polite_sleep(base=1.6):
     time.sleep(base + random.random())
@@ -63,18 +65,17 @@ def to_num(v):
     return -n if neg else n
 
 
-def _warm_dividend_session():
-    global _DIV_WARMED
-    if _DIV_WARMED:
+def _warm_dividend_session(typek):
+    if typek in _DIV_WARMED:
         return
     try:
         SESSION.post(f"{BASE}/mops/web/ajax_t05st09_new",
                      data={"encodeURIComponent": "1", "step": "1", "firstin": "1",
-                           "off": "1", "TYPEK": "sii"},
+                           "off": "1", "TYPEK": typek},
                      timeout=30)
     except Exception:
         pass
-    _DIV_WARMED = True
+    _DIV_WARMED.add(typek)
 
 
 def _flat_cols(df):
@@ -113,10 +114,10 @@ def _parse_div_table(df, roc_year, out):
         out.setdefault(code, {})[period] = {"p": period, "cash": round(cash, 5), "stock": round(stk, 5)}
 
 
-def fetch_dividends_year(roc_year):
-    """抓取單一年度全部上市公司股利分派（一個請求涵蓋全市場）"""
-    _warm_dividend_session()
-    url = f"{BASE}/server-java/t05st09sub?step=1&TYPEK=sii&YEAR={roc_year}"
+def fetch_dividends_year(roc_year, typek="sii"):
+    """抓取單一年度全市場股利分派（一個請求）。typek: sii=上市 / otc=上櫃"""
+    _warm_dividend_session(typek)
+    url = f"{BASE}/server-java/t05st09sub?step=1&TYPEK={typek}&YEAR={roc_year}"
     r = SESSION.get(url, timeout=90,
                     headers={"Referer": f"{BASE}/mops/web/t05st09_new"})
     r.raise_for_status()
@@ -137,17 +138,18 @@ def run_dividends(y1, y2):
     merged = {}
     for y in range(y1, y2 + 1):
         roc = y - 1911
-        print(f"[div] {roc} 年度股利分派 ...", flush=True)
-        try:
-            data, _ = fetch_dividends_year(roc)
-        except Exception as e:
-            print(f"[div] {roc} 失敗：{e}")
-            polite_sleep(3)
-            continue
-        for code, rows in data.items():
-            merged.setdefault(code, []).extend(rows)
-        print(f"[div] {roc} 完成，{len(data)} 檔")
-        polite_sleep()
+        for typek, label in (("sii", "上市"), ("otc", "上櫃")):
+            print(f"[div] {roc} 年度股利分派（{label}）...", flush=True)
+            try:
+                data, _ = fetch_dividends_year(roc, typek)
+            except Exception as e:
+                print(f"[div] {roc} {label} 失敗：{e}")
+                polite_sleep(3)
+                continue
+            for code, rows in data.items():
+                merged.setdefault(code, []).extend(rows)
+            print(f"[div] {roc} {label} 完成，{len(data)} 檔")
+            polite_sleep()
     n = 0
     for code, rows in merged.items():
         obj = load_stock(code)
@@ -239,14 +241,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--update", action="store_true")
     ap.add_argument("--probe-div", type=str, metavar="ROC_YEAR")
+    ap.add_argument("--typek", default="sii", choices=["sii", "otc"], help="probe-div 市場別（sii=上市 otc=上櫃）")
     ap.add_argument("--dividends-backfill", nargs=2, type=int, metavar=("Y1", "Y2"))
     ap.add_argument("--build-screen", action="store_true")
     args = ap.parse_args()
 
     if args.probe_div:
-        data, raw = fetch_dividends_year(int(args.probe_div))
+        data, raw = fetch_dividends_year(int(args.probe_div), args.typek)
         if data:
-            sample = data.get("2330") or next(iter(data.values()))
+            sample = data.get("2330") or data.get("5483") or next(iter(data.values()))
             print(f"共 {len(data)} 檔。範例（2330 或第一檔）：")
             print(json.dumps(sample, ensure_ascii=False, indent=2))
         else:
