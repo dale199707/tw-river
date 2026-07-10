@@ -261,27 +261,39 @@ def build_screen():
         bv_c = qmap.get(latest, {}).get("bvps")
         bv_p = qmap.get(q_back(latest, 4), {}).get("bvps")
         nav_g = growth(bv_c, bv_p)
-        # 估價原料（盤後選股欄位用）：去年全年 EPS（最近一個有 Q4 的年度，eps 為 YTD 故 Q4=全年）、
-        # 近4季 EPS 合計、歷年年度本益比最低/次低（data/price，pe>0）
+        # 估價原料（盤後選股欄位用）：
+        # epsY＝最近完整年度 EPS（eps 為 YTD，取該年 Q4）；g3＝過去 3 年 EPS 複合成長率 CAGR%
+        #（epsY 與三年前全年 EPS 皆須為正）；peLo/peLo2＝歷年「最低價換算本益比」最低與次低
+        #（該年最低本益比＝lo÷該年EPS＝lo×pe÷ref，因年度 EPS＝ref÷pe；lo/pe/ref 皆須>0）
         yl = int(latest[:4])
-        eps_y = None
+        eps_y, base_y = None, None
         for y in (yl, yl - 1):
             v = qmap.get(f"{y}Q4", {}).get("eps")
             if v is not None:
-                eps_y = v
+                eps_y, base_y = v, y
                 break
+        g3 = None
+        if base_y is not None and eps_y and eps_y > 0:
+            eps_y3 = qmap.get(f"{base_y - 3}Q4", {}).get("eps")
+            if eps_y3 and eps_y3 > 0:
+                g3 = round(((eps_y / eps_y3) ** (1 / 3) - 1) * 100, 1)
         pes = []
         pf = DATA_DIR / "price" / f"{code}.json"
         if pf.exists():
             try:
                 ydata = json.loads(pf.read_text(encoding="utf8")).get("y") or {}
-                pes = sorted(e["pe"] for e in ydata.values() if e and e.get("pe") and e["pe"] > 0)
+                for e in ydata.values():
+                    if (e and e.get("pe") and e["pe"] > 0 and e.get("lo") and e["lo"] > 0
+                            and e.get("ref") and e["ref"] > 0):
+                        pes.append(e["lo"] * e["pe"] / e["ref"])
+                pes.sort()
             except Exception:
                 pes = []
         rows.append({"c": code, "q": latest, "debt": debt_y, "dep": dep_y,
                      "revG": rev_g, "niG": ni_g, "epsG": eps_g, "roe": roe, "navG": nav_g,
                      "eps4": round(eps_c, 2) if eps_c is not None else None,
                      "epsY": round(eps_y, 2) if eps_y is not None else None,
+                     "g3": g3,
                      "peLo": round(pes[0], 2) if pes else None,
                      "peLo2": round(pes[1], 2) if len(pes) > 1 else None})
     out = {"updated": date.today().isoformat(), "rows": rows}

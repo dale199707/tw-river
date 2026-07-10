@@ -1108,22 +1108,23 @@ function App(){
       r.navG!=null&&r.navG>0&&
       r.debt!=null&&r.debt>=0&&r.debt<5
     ).map(r=>{
-      /* 估價衍生欄：成長率＝近4季EPS÷去年EPS−1（去年EPS>0 才算）；PEG＝本益比÷成長率（成長率>0 才列）；
-         便宜價＝成長率×75%×近4季EPS、合理價＝成長率×近4季EPS（Peter Lynch 式：合理本益比≈成長率）；
-         最低/次低PE價＝歷年年度本益比最低/次低 × 近4季EPS */
+      /* 估價衍生欄：成長率＝近4季EPS÷去年EPS−1（去年EPS>0 才算，僅顯示用）；
+         G＝過去3年全年EPS複合成長率 CAGR%（screen.json 預算）；
+         PEG＝本益比÷G（G>0 才列）；合理價＝EPS×PEG(=1)×G、便宜價＝EPS×0.75×G（EPS＝近4季）；
+         最低/次低PE價＝歷年「最低價換算本益比」最低/次低 × 近4季EPS */
       const close=(snap.quotes[r.c]||{}).close??null;
       const eps4=r.eps4;
       const pe=(close!=null&&eps4!=null&&eps4>0)?close/eps4:null;
       const growR=(eps4!=null&&r.epsY!=null&&r.epsY>0)?(eps4/r.epsY-1)*100:null;
-      const posG=growR!=null&&growR>0;
+      const posG=r.g3!=null&&r.g3>0;
       return {...r,name:names[r.c]||"—",close,
         pe, growR,
-        peg:(pe!=null&&posG)?pe/growR:null,
+        peg:(pe!=null&&posG)?pe/r.g3:null,
         pLo:(r.peLo!=null&&eps4!=null&&eps4>0)?r.peLo*eps4:null,
         pLo2:(r.peLo2!=null&&eps4!=null&&eps4>0)?r.peLo2*eps4:null,
         p12:(eps4!=null&&eps4>0)?12*eps4:null,
-        cheap:posG&&eps4!=null?growR*0.75*eps4:null,
-        fair:posG&&eps4!=null?growR*eps4:null};
+        cheap:posG&&eps4!=null&&eps4>0?0.75*r.g3*eps4:null,
+        fair:posG&&eps4!=null&&eps4>0?r.g3*eps4:null};
     });
     const {k,d}=pickSort;
     rows.sort((a,b)=>{
@@ -1349,10 +1350,10 @@ function App(){
             <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>載入中…</div>
           ):(
             <React.Fragment>
-              <div className="note" style={{marginTop:0}}>五條件全數通過共 {pickRows.length} 檔{pickRows.length>300?"（僅顯示前 300 檔）":""}。左段成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈不列入）；ROE＝近 4 季純益÷最新股東權益；NAV 成長＝每股淨值 vs 一年前（ROE×NAV＝EPS）。右段估價：成長率＝近 4 季 EPS÷去年 EPS−1；本益比＝現價÷近 4 季 EPS；PEG＝本益比÷成長率（成長率為正才列）；最低／次低 PE 價＝歷年年度本益比最低／次低×近 4 季 EPS；便宜價＝成長率×75%×近 4 季 EPS、合理價＝成長率×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
+              <div className="note" style={{marginTop:0}}>五條件全數通過共 {pickRows.length} 檔{pickRows.length>300?"（僅顯示前 300 檔）":""}。左段成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈不列入）；ROE＝近 4 季純益÷最新股東權益；NAV 成長＝每股淨值 vs 一年前（ROE×NAV＝EPS）。右段估價：本益比＝現價÷近 4 季 EPS；成長率＝近 4 季 EPS÷去年 EPS−1（短期動能參考）；G＝過去 3 年全年 EPS 複合成長率（CAGR）；PEG＝本益比÷G（G 為正才列，＜1 相對便宜）；最低／次低 PE 價＝歷年「該年最低價÷該年 EPS」的最低／次低本益比×近 4 季 EPS；合理價＝近 4 季 EPS×PEG(=1)×G、便宜價＝近 4 季 EPS×0.75×G。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
               <div className="tablewrap">
                 <table className="pricetable small mono">
-                  <thead><tr>{pickTh("c","股號")}<th>股名</th><th>最新季</th>{pickTh("revG","營收成長")}{pickTh("niG","盈餘成長")}{pickTh("epsG","EPS成長")}{pickTh("roe","ROE")}{pickTh("navG","NAV成長")}{pickTh("debt","償債年數")}{pickTh("close","現價")}{pickTh("epsY","去年EPS")}{pickTh("eps4","近4季EPS")}{pickTh("pe","本益比")}{pickTh("growR","成長率")}{pickTh("peg","PEG")}{pickTh("pLo","最低PE價")}{pickTh("pLo2","次低PE價")}{pickTh("p12","12倍PE價")}{pickTh("cheap","便宜價")}{pickTh("fair","合理價")}</tr></thead>
+                  <thead><tr>{pickTh("c","股號")}<th>股名</th><th>最新季</th>{pickTh("revG","營收成長")}{pickTh("niG","盈餘成長")}{pickTh("epsG","EPS成長")}{pickTh("roe","ROE")}{pickTh("navG","NAV成長")}{pickTh("debt","償債年數")}{pickTh("close","現價")}{pickTh("epsY","去年EPS")}{pickTh("eps4","近4季EPS")}{pickTh("pe","本益比")}{pickTh("growR","成長率")}{pickTh("g3","G(3年CAGR)")}{pickTh("peg","PEG")}{pickTh("pLo","最低PE價")}{pickTh("pLo2","次低PE價")}{pickTh("p12","12倍PE價")}{pickTh("cheap","便宜價")}{pickTh("fair","合理價")}</tr></thead>
                   <tbody>
                     {pickRows.slice(0,300).map(r=>(
                       <tr key={r.c} style={{cursor:"pointer"}} onClick={()=>openKept(r.c)}>
@@ -1370,6 +1371,7 @@ function App(){
                         <td>{fmt(r.eps4,2)}</td>
                         <td>{fmt(r.pe,1)}</td>
                         <td>{r.growR!=null?fmt(r.growR,1)+"%":"—"}</td>
+                        <td>{r.g3!=null?fmt(r.g3,1)+"%":"—"}</td>
                         <td>{fmt(r.peg,2)}</td>
                         <td className="lov">{fmt(r.pLo,1)}</td>
                         <td>{fmt(r.pLo2,1)}</td>
