@@ -254,14 +254,36 @@ def build_screen():
         rev_g = growth(sum4(qmap, cur4, "rev"), sum4(qmap, prev4, "rev"))
         ni_c = sum4(qmap, cur4, "ni")
         ni_g = growth(ni_c, sum4(qmap, prev4, "ni"))
-        eps_g = growth(sum4(qmap, cur4, "eps"), sum4(qmap, prev4, "eps"))
+        eps_c = sum4(qmap, cur4, "eps")
+        eps_g = growth(eps_c, sum4(qmap, prev4, "eps"))
         eq = qmap.get(latest, {}).get("eq")
         roe = round(ni_c / eq * 100, 1) if ni_c is not None and eq and eq > 0 else None
         bv_c = qmap.get(latest, {}).get("bvps")
         bv_p = qmap.get(q_back(latest, 4), {}).get("bvps")
         nav_g = growth(bv_c, bv_p)
+        # 估價原料（盤後選股欄位用）：去年全年 EPS（最近一個有 Q4 的年度，eps 為 YTD 故 Q4=全年）、
+        # 近4季 EPS 合計、歷年年度本益比最低/次低（data/price，pe>0）
+        yl = int(latest[:4])
+        eps_y = None
+        for y in (yl, yl - 1):
+            v = qmap.get(f"{y}Q4", {}).get("eps")
+            if v is not None:
+                eps_y = v
+                break
+        pes = []
+        pf = DATA_DIR / "price" / f"{code}.json"
+        if pf.exists():
+            try:
+                ydata = json.loads(pf.read_text(encoding="utf8")).get("y") or {}
+                pes = sorted(e["pe"] for e in ydata.values() if e and e.get("pe") and e["pe"] > 0)
+            except Exception:
+                pes = []
         rows.append({"c": code, "q": latest, "debt": debt_y, "dep": dep_y,
-                     "revG": rev_g, "niG": ni_g, "epsG": eps_g, "roe": roe, "navG": nav_g})
+                     "revG": rev_g, "niG": ni_g, "epsG": eps_g, "roe": roe, "navG": nav_g,
+                     "eps4": round(eps_c, 2) if eps_c is not None else None,
+                     "epsY": round(eps_y, 2) if eps_y is not None else None,
+                     "peLo": round(pes[0], 2) if pes else None,
+                     "peLo2": round(pes[1], 2) if len(pes) > 1 else None})
     out = {"updated": date.today().isoformat(), "rows": rows}
     (DATA_DIR / "screen.json").write_text(
         json.dumps(out, separators=(",", ":"), ensure_ascii=False), encoding="utf8")
