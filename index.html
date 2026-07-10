@@ -1011,18 +1011,27 @@ function App(){
       }catch(e2){ alert("保留股儲存失敗：瀏覽器儲存空間不足，或處於無痕／隱私模式（關閉視窗後資料不會保留）。"); }
     }
   };
-  const grpOf=w=>w.grp||"未分類";
-  const grpList=useMemo(()=>{ const s=new Set(watch.map(grpOf)); return [...s]; },[watch]);
-  const watchFiltered=useMemo(()=>watchGrp==="全部"?watch:watch.filter(w=>grpOf(w)===watchGrp),[watch,watchGrp]);
-  const setGrp=(code,g)=>{
+  /* 多群組：grps 陣列（舊資料 grp 字串自動相容讀取；寫入時遷移為 grps） */
+  const grpsOf=w=>Array.isArray(w.grps)?(w.grps.length?w.grps:["未分類"]):[w.grp||"未分類"];
+  const grpList=useMemo(()=>{ const s=new Set(); watch.forEach(w=>grpsOf(w).forEach(g=>s.add(g))); return [...s]; },[watch]);
+  const watchFiltered=useMemo(()=>watchGrp==="全部"?watch:watch.filter(w=>grpsOf(w).includes(watchGrp)),[watch,watchGrp]);
+  const toggleGrp=(code,g)=>{
+    if(!g) return;
     if(g==="__new__"){
       const name=(prompt("新群組名稱：")||"").trim();
       if(!name) return;
       g=name;
     }
-    saveWatch(watch.map(w=>w.code===code?{...w,grp:g}:w));
+    saveWatch(watch.map(w=>{
+      if(w.code!==code) return w;
+      const cur=grpsOf(w);
+      let next=cur.includes(g)?cur.filter(x=>x!==g):[...cur,g];
+      if(!next.length) next=["未分類"];
+      return {...w,grps:next,grp:undefined};
+    }));
   };
   const isKept=stock&&watch.some(w=>w.code===stock.code);
+  const keptGrps=stock?(watch.filter(w=>w.code===stock.code).flatMap(grpsOf)):[];
   const [keepMenu,setKeepMenu]=useState(false);
   const addKeep=g=>{
     if(!stock) return;
@@ -1031,8 +1040,9 @@ function App(){
       if(!name){ setKeepMenu(false); return; }
       g=name;
     }
+    if(isKept){ toggleGrp(stock.code,g); return; }   /* 已保留：切換群組成員資格，選單保持開啟可連點 */
     setKeepMenu(false);
-    const entry={code:stock.code,name:stock.name,ts:new Date().toISOString().slice(0,10),grp:g,snap:{
+    const entry={code:stock.code,name:stock.name,ts:new Date().toISOString().slice(0,10),grps:[g],snap:{
       price:stock.quote.close??null,
       eps:model?model.epsNow:null,
       ipoY:stock.ipo||null,
@@ -1050,8 +1060,7 @@ function App(){
   const customGrps=grpList.filter(g=>g!=="未分類");
   const onKeepClick=()=>{
     if(!stock) return;
-    if(isKept){ removeKeep(stock.code); setKeepMenu(false); return; }
-    setKeepMenu(m=>!m);
+    setKeepMenu(m=>!m);   /* ☆ 加入群組；★ 開同一選單切換群組/取消保留（不再一鍵移除） */
   };
   const openKept=code=>{ if(!snap) return; const c=snap.companies.find(x=>x.code===code); if(c) pick(c); };
   useEffect(()=>{ setKeepMenu(false); },[stock]);
@@ -1194,7 +1203,7 @@ function App(){
           {grpList.length>0&&(
             <div className="grpchips">
               {["全部",...grpList].map(g=>(
-                <button key={g} className={"grpchip"+(watchGrp===g?" active":"")} onClick={()=>setWatchGrp(g)}>{g}{g!=="全部"?`（${watch.filter(w=>grpOf(w)===g).length}）`:""}</button>
+                <button key={g} className={"grpchip"+(watchGrp===g?" active":"")} onClick={()=>setWatchGrp(g)}>{g}{g!=="全部"?`（${watch.filter(w=>grpsOf(w).includes(g)).length}）`:""}</button>
               ))}
             </div>
           )}
@@ -1210,10 +1219,14 @@ function App(){
                       <td>{w.name}</td>
                       <td>{w.code}</td>
                       <td onClick={e=>e.stopPropagation()}>
-                        <select className="grpsel" value={grpOf(w)} onChange={e=>setGrp(w.code,e.target.value)}>
-                          {[...new Set([...grpList,"未分類"])].map(g=><option key={g} value={g}>{g}</option>)}
-                          <option value="__new__">＋新增群組…</option>
-                        </select>
+                        <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}>
+                          <span style={{fontSize:12}}>{grpsOf(w).join("、")}</span>
+                          <select className="grpsel" style={{maxWidth:70}} value="" onChange={e=>toggleGrp(w.code,e.target.value)}>
+                            <option value="" disabled>±群組</option>
+                            {[...new Set([...grpList,"未分類"])].map(g=><option key={g} value={g}>{grpsOf(w).includes(g)?"✓ ":""}{g}</option>)}
+                            <option value="__new__">＋新增群組…</option>
+                          </select>
+                        </div>
                       </td>
                       <td>{w.ts}</td>
                       <td>{w.snap.price!=null?fmt(w.snap.price,2):"—"}</td>
@@ -1233,7 +1246,7 @@ function App(){
               </table>
             </div>
           )}
-          <div className="note">點列可開啟該檔股票。EPS／償債年數等為保留當下快照；掛牌年數隨時間更新。保留時自動歸入目前選取的群組。看完一檔後會自動預抓前後檔資料，← → 切換更快。</div>
+          <div className="note">點列可開啟該檔股票。EPS／償債年數等為保留當下快照；掛牌年數隨時間更新。一檔股票可同時屬於多個群組（列上「±群組」或股名旁 ★ 選單皆可切換）。看完一檔後會自動預抓前後檔資料，← → 切換更快。</div>
         </div>
       )}
 
@@ -1273,7 +1286,7 @@ function App(){
         </div>
       )}
 
-      {stock&&(
+      {stock&&!scrOpen&&(
         <React.Fragment>
           <div className="card">
             <div className="stockhead" style={{marginBottom:0}}>
@@ -1287,11 +1300,12 @@ function App(){
                   <React.Fragment>
                     <div className="menubg" onClick={()=>setKeepMenu(false)}/>
                     <div className="keepmenu">
-                      <div className="keepmenu-t">加入群組</div>
+                      <div className="keepmenu-t">{isKept?"群組（點擊切換，可多選）":"加入群組"}</div>
                       {[...customGrps,"未分類"].map(g=>(
-                        <div key={g} className="keepmenu-i" onClick={()=>addKeep(g)}>{g}</div>
+                        <div key={g} className="keepmenu-i" onClick={()=>addKeep(g)}>{isKept&&keptGrps.includes(g)?"✓ ":""}{g}</div>
                       ))}
                       <div className="keepmenu-i new" onClick={()=>addKeep("__new__")}>＋新增群組…</div>
+                      {isKept&&<div className="keepmenu-i new" onClick={()=>{removeKeep(stock.code);setKeepMenu(false);}}>✕ 取消保留</div>}
                     </div>
                   </React.Fragment>
                 )}
