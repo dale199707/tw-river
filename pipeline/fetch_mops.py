@@ -262,21 +262,17 @@ def build_screen():
         bv_p = qmap.get(q_back(latest, 4), {}).get("bvps")
         nav_g = growth(bv_c, bv_p)
         # 估價原料（盤後選股欄位用）：
-        # epsY＝最近完整年度 EPS（eps 為 YTD，取該年 Q4）；g3＝過去 3 年 EPS 複合成長率 CAGR%
-        #（epsY 與三年前全年 EPS 皆須為正）；peLo/peLo2＝歷年「最低價換算本益比」最低與次低
-        #（該年最低本益比＝lo÷該年EPS＝lo×pe÷ref，因年度 EPS＝ref÷pe；lo/pe/ref 皆須>0）
+        # epsY＝最近完整年度 EPS（eps 為 YTD，取該年 Q4，顯示用）；
+        # peLo/peLo2＝歷年「最低價換算本益比」最低與次低
+        #（該年最低本益比＝lo÷該年EPS＝lo×pe÷ref，因年度 EPS＝ref÷pe；lo/pe/ref 皆須>0）。
+        # PEG/便宜/合理價的成長率 G＝連續四季 EPS 成長率＝既有 epsG（近4季 vs 前4季），前端直接取用
         yl = int(latest[:4])
-        eps_y, base_y = None, None
+        eps_y = None
         for y in (yl, yl - 1):
             v = qmap.get(f"{y}Q4", {}).get("eps")
             if v is not None:
-                eps_y, base_y = v, y
+                eps_y = v
                 break
-        g3 = None
-        if base_y is not None and eps_y and eps_y > 0:
-            eps_y3 = qmap.get(f"{base_y - 3}Q4", {}).get("eps")
-            if eps_y3 and eps_y3 > 0:
-                g3 = round(((eps_y / eps_y3) ** (1 / 3) - 1) * 100, 1)
         pes = []
         pf = DATA_DIR / "price" / f"{code}.json"
         if pf.exists():
@@ -293,7 +289,6 @@ def build_screen():
                      "revG": rev_g, "niG": ni_g, "epsG": eps_g, "roe": roe, "navG": nav_g,
                      "eps4": round(eps_c, 2) if eps_c is not None else None,
                      "epsY": round(eps_y, 2) if eps_y is not None else None,
-                     "g3": g3,
                      "peLo": round(pes[0], 2) if pes else None,
                      "peLo2": round(pes[1], 2) if len(pes) > 1 else None})
     out = {"updated": date.today().isoformat(), "rows": rows}
