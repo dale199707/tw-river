@@ -858,6 +858,7 @@ function App(){
     if(!hist||!stock) return null;
     const rows=hist.data.map((d,i)=>d?{...d}:{year:hist.years[i]});
     let finUsed=false;
+    let revPSTTM=null;
     if(finRows&&finRows.length){
       const annual={};
       finRows.forEach(r=>{ if(r.s===4) annual[r.y]={eps:r.eps,bvps:r.bvps,rev:r.rev}; });
@@ -866,7 +867,7 @@ function App(){
       const bvpsLatest=finRows[li].bvps;
       const sharesM=stock.capital?stock.capital/10:null;
       const revTTM=trailing4(finRows,li,"rev_q");
-      const revPSTTM=(revTTM!=null&&sharesM)?revTTM*1000/sharesM:null;
+      revPSTTM=(revTTM!=null&&sharesM)?revTTM*1000/sharesM:null;
       const lastY=rows[rows.length-1].year;
       rows.forEach(r=>{
         if(!r||r.hi==null) return;
