@@ -1052,8 +1052,8 @@ function App(){
       const niB=yr.map(r=>B(r.ni));
       const opB=yr.map(r=>B(r.op));
       const nonopB=yr.map(r=>B(r.nonop));
-      const stbB=yr.map(r=>B(r.stb??(r.inv!=null?0:null)));
-      const ltbB=yr.map(r=>B(r.ltb??(r.inv!=null?0:null)));
+      const stbB=yr.map(r=>B(r.stb??((r.inv!=null||r.dep!=null)?0:null)));
+      const ltbB=yr.map(r=>B(r.ltb??((r.inv!=null||r.dep!=null)?0:null)));
       const borrowB=yr.map((r,i)=>(stbB[i]!=null||ltbB[i]!=null)?(stbB[i]||0)+(ltbB[i]||0):null);
       const fixedTurn=yr.map(r=>r.rev!=null&&r.ppe?r.rev/r.ppe*100:null);
       const invPct=yr.map(r=>r.inv!=null&&r.ca?r.inv/r.ca*100:null);
@@ -1077,7 +1077,7 @@ function App(){
         revB,ocfB,niB,opB,nonopB,stbB,ltbB,borrowB,fixedTurn,invPct,arPct,apPct,
         defensive,outsideRet,stack,
         hasDetail:yr.some(r=>r.inv!=null||r.dep!=null),
-        hasBorrow:yr.some(r=>r.stb!=null||r.ltb!=null),
+        hasBorrow:yr.some(r=>r.stb!=null||r.ltb!=null||r.inv!=null||r.dep!=null),
         hasNonop:yr.some(r=>r.nonop!=null),
         epsCagr,cagrY0};
     })();
