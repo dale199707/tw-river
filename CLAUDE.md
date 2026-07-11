@@ -1,8 +1,9 @@
 # CLAUDE.md — tw-river 台股估價河流圖
 
-> 交接檔（v16，2026-07-12）。新對話／Claude Code 請先完整讀完本檔再動手。
+> 交接檔（v16.1，2026-07-12）。新對話／Claude Code 請先完整讀完本檔再動手。
 > **本檔含「維運手冊」專章**：所有例行更新、失敗處理、偵錯 SOP 都寫成可照抄執行的步驟，
 > 任何模型（含較弱模型）都應嚴格照手冊執行、不自行變通、不跳步驟。
+> **v16.1 補強**：維運手冊 A 節擴充為每季 XBRL 更新完整 Runbook（含 Claude Code 呼叫 prompt）。
 > **v16 重點**：前端全面「年化呈現」改版（圖表以完整年度＋近4季點呈現，QChart 大幅擴充）、
 > 盤後選股批次保留與非上市櫃過濾、PSR 河流圖、pipeline 股票分割基準修正（_split_adjust）。
 > **2026-07-12 白畫面事故教訓已寫入前端鐵律**：改 model/finView 等核心計算必須做執行期煙霧測試，
@@ -33,12 +34,7 @@
 - 原始檔在 `~/Desktop/tw-river-repo/XBRL/`（gitignored，勿 commit）。
 
 ### 每季更新方式
-Dale 每季手動下載新一季 XBRL 包解壓至 `XBRL/tifrs-{YYYY}Q{n}/`，執行：
-```
-python3 pipeline/xbrl_ingest.py --quarter 2026Q2
-python3 pipeline/fetch_mops.py --build-screen
-```
-再 add 指定檔案 commit push（只 add `data/fin data/screen.json`，勿 `git add -A`）。
+**→ 完整流程見「維運手冊 A 節：每季 XBRL 財報更新完整 Runbook」**（含 Claude Code 呼叫 prompt、驗收檢核、連動地圖、異常處理表）。本節僅保留技術參考。
 
 ### xbrl_ingest.py 關鍵知識（除錯/擴充時參考）
 - **指令**：`--quarter YYYYQn`（單季寫檔＋記斷點）、`--quarter ... --dry-run`（只比對）、`--all`（逐季、斷點自動跳過）、`--all --force`（全重跑）、`--top N`（出入清單筆數）。斷點檔 `data/xbrl_progress.json`（gitignored）；merge 冪等，中斷重跑不壞資料。
@@ -224,24 +220,141 @@ Object.keys(localStorage).filter(k=>k.startsWith("twri-snap")||k.startsWith("twr
 | 股利（雙市場） | 每季 4/5/8/11 月 16 日 | findata.yml → div | 否 |
 | **財報（XBRL）** | **每季** | **人工下載＋跑 xbrl_ingest** | **是（唯一例行人工）** |
 
-### A. 每季 XBRL 財報更新（唯一例行人工作業）
+### A. 每季 XBRL 財報更新完整 Runbook（唯一例行人工作業；弱模型逐字照做）
 
-**時機**：Q1→5/15 後、Q2→8/14 後、Q3→11/14 後、年報(Q4)→隔年 3/31 後幾天。下一次＝**2026Q2，8/14 之後**。
+> 本節是自給自足的完整手冊：從下載、呼叫 Claude Code、執行、驗收、到異常處理。
+> **核心原則：整個更新只產生資料檔（data/fin、data/screen.json），不需要也不准改任何程式碼。**
+> 前端沒有任何硬編碼季別，新季資料 push 上去圖表就會自己長出來。
 
-**步驟**：
-1. 公開資訊觀測站 XBRL 資料下載專區，下載該季申報檔案整包
-2. 解壓到 `~/Desktop/tw-river-repo/XBRL/tifrs-{YYYY}Q{n}/`（內含數千個 .html）
-3. 執行（季別自行代換）：
+#### A-0 時機與下載
+
+- 申報截止：Q1→5/15、Q2→8/14、Q3→11/14、年報(Q4)→隔年 3/31。截止日後 2〜3 天再下載（讓遲交公司進包）。下一次＝**2026Q2，約 8/17 前後**。
+- 下載處：公開資訊觀測站 → XBRL 資料下載專區 → 該季財報整包。
+- 解壓到 `~/Desktop/tw-river-repo/XBRL/tifrs-{YYYY}Q{n}/`，例如 `XBRL/tifrs-2026Q2/`。**資料夾命名必須是 `tifrs-YYYYQn` 格式**，內容物為數千個 .html（2018 年的包為 .xml，僅歷史重跑會遇到）。
+
+#### A-1 Claude Code 呼叫方式（Dale 只需做這件事）
+
+Claude Code 啟動時會自動讀 repo 根目錄的 CLAUDE.md（即本檔），所以 prompt 不必重講背景。
+
 ```
 cd ~/Desktop/tw-river-repo
+claude
+```
+
+然後依情境貼下列 prompt 之一（【】內自行代換季別）：
+
+**Prompt ①（標準每季更新，最常用）**：
+```
+我已把【2026Q2】的 XBRL 包解壓到 XBRL/tifrs-2026Q2/。
+請依照 CLAUDE.md 維運手冊 A 節的 Runbook 執行本季更新：
+先 --dry-run 把出入清單貼給我確認，我說可以之後才正式入庫、重建 screen、
+跑完 A-3 驗收檢核並把每一項結果貼給我，最後才給 git 指令。
+過程中不要修改任何程式碼；異常就停下來對照 A-6 表格回報。
+```
+
+**Prompt ②（遲交公司補收，季中重下載包之後）**：
+```
+我重新下載了【2026Q2】的 XBRL 包（補遲交公司），已覆蓋解壓到 XBRL/tifrs-2026Q2/。
+請依 CLAUDE.md A-7 節執行補收：重跑同一季（merge 冪等）、
+比對本次新增了哪些代號、重建 screen、驗收後給 git 指令。
+```
+
+**Prompt ③（懷疑有缺漏時的調查）**：
+```
+請依 CLAUDE.md A-7 節的缺漏調查 SOP，清查 screen.json 裡最新季不是【2026Q2】的股票，
+用 data/price 交叉比對區分「真上市櫃缺漏」與「興櫃/公發/下市（正常）」，
+把需調查清單與判讀貼給我，先不要做任何修復動作。
+```
+
+#### A-2 標準執行步驟（Claude Code 實際要跑的指令）
+
+```
+cd ~/Desktop/tw-river-repo
+python3 pipeline/xbrl_ingest.py --quarter 2026Q2 --dry-run --top 30
+```
+→ 把輸出貼給 Dale 確認（重點看：可解析檔數是否約 2,500+、出入清單是否合理）。確認後：
+```
 python3 pipeline/xbrl_ingest.py --quarter 2026Q2
 python3 pipeline/fetch_mops.py --build-screen
+```
+→ 跑 A-3 驗收，全數通過後才給 git（單一 code block、無行內註解、只 add 這兩個路徑）：
+```
+cd ~/Desktop/tw-river-repo
 git add data/fin data/screen.json
 git commit -m "XBRL 2026Q2 入庫"
 git pull --rebase -X theirs
 git push
 ```
-**檢查**：寫入約 1900+ 檔（上市櫃）＋數百興櫃屬正常；抽驗 `python3 -c "import json;d=json.load(open('data/fin/2330.json'));print(sorted(d['q'])[-1])"` 應印新季別；push 後開網站查 2330 財務指標最右應出現新的「近4季」值。**絕不 commit XBRL 原始檔、不可 git add -A**。若大量解析失敗先 `--dry-run` 比對。
+
+#### A-3 驗收檢核清單（逐項執行、逐項貼結果）
+
+```
+python3 -c "import json;d=json.load(open('data/fin/2330.json'));print('2330 最新季:',sorted(d['q'])[-1])"
+python3 -c "import json;d=json.load(open('data/fin/2330.json'));k=sorted(d['q'])[-1];print('2330 該季 rev/ni/eps:',d['q'][k].get('rev'),d['q'][k].get('ni'),d['q'][k].get('eps'))"
+python3 -c "import json;d=json.load(open('data/screen.json'));import collections;c=collections.Counter(r['q'] for r in d['rows']);print('screen 最新季分布:',dict(sorted(c.items(),reverse=True)[:3]));print('updated:',d['updated'])"
+python3 -c "import json;d=json.load(open('data/screen.json'));r=[x for x in d['rows'] if x['c']=='2330'][0];print('2330 screen 列:',r)"
+```
+通過標準：① 2330 最新季＝本季；② rev/ni/eps 非空且量級合理（rev 千元、eps 元）；③ screen 最新季分布最大宗＝本季（約 2,000 檔上下；數百檔停在舊季＝興櫃/公發屬正常，見 A-7）；④ 2330 的 eps4 有值。
+push 後 1〜2 分鐘再驗網站：開 2330 財務指標，圖表最右「近4季」值應更新；盤後選股表「最新季」欄應出現本季。
+
+#### A-4 程式碼連動地圖（哪些自動更新、哪些絕對不要動）
+
+**會被指令產生/更新的檔案（唯二）**：
+- `data/fin/{code}.json`：q 新增本季鍵（merge 冪等，舊值不會被清掉）
+- `data/screen.json`：q/eps4/epsY/各成長率全部滾動到新窗口（含 _split_adjust 分割修正）
+
+**自動連動、不需要改任何一行程式的下游**（弱模型注意：看到這些「變了」是正常，不是 bug，不要去改 index.html）：
+- finQuarters 動態讀 q 全部鍵 → 詳細數據分頁逐季表自動多一列
+- finView.Y 的「近4季」點自動右移（滾動窗口換季）
+- model 的 epsTTM/revPSTTM → 本益比、PSR 河流圖右端與位階判讀自動更新
+- 盤後選股/篩選表讀 screen.json → 現價÷新 eps4 的本益比等全部自動滾動
+- 股利圖 divY 的財報年度範圍自動延伸
+- EPS 年複合成長率：終點年不變（仍為最新「完整」年度），只有年報入庫才前進（見 A-5）
+
+**不自動更新的例外（唯一）**：保留股面板的估價快照是加入當下的定格，換季後不會自己變；Dale 開個股重按 ★ 才更新。這是設計不是 bug。
+
+**本次更新絕對不要動的東西**：index.html、worker.js、pipeline/*.py、.github/workflows/*。若模型認為「需要改程式才能支援新季」，一律停下來回報——這個判斷 99% 是錯的。
+
+#### A-5 年報季（Q4 包，每年 3 月底）特別注意
+
+年報入庫後屬正常現象、不要當 bug 修：
+- 大多數股票最新季變成 Q4 → 年化圖最右的「近4季」點**消失**（設計如此：最新季＝Q4 時年度列即是最新，不補 TTM 點；隔年 5 月 Q1 入庫後近4季點回來）
+- EPS 年複合成長率的終點年前進一年（標題的「至 XXXX 年」跟著變）
+- 股利圖年份範圍延伸一年（新完整年度補 0 或實際發放）
+- 盤後選股 epsY（去年EPS）換基準 → EPS成長率全表重算，數字大變屬正常
+
+#### A-6 失敗與異常處理表（對照症狀，照處置做，不要自行發明）
+
+| 症狀 | 原因 | 處置 |
+|---|---|---|
+| dry-run 可解析 0 檔或極少 | 資料夾名/路徑/季別打錯，或解壓多包了一層目錄 | `ls XBRL/tifrs-2026Q2` 確認直接是 .html；修正後重跑 |
+| 大量解析失敗（>一成） | MOPS 改格式 | 停止，貼 dry-run 輸出＋一個失敗檔名給 Dale 開新對話，勿硬改解析器 |
+| 個別公司缺季 | 遲交/停止申報 | 照 A-7 |
+| `--build-screen` 忘了跑 | — | screen.json 沒滾動＝盤後選股全錯。**入庫後必跑 build-screen，兩者是一組** |
+| push 被拒 | 順序錯 | 一律 commit → pull --rebase -X theirs → push |
+| 誤把 XBRL/ add 進去 | 用了 git add -A | 未 commit：`git reset`；已 commit 未 push：`git reset --soft HEAD~1` 重來。**絕不能 push** |
+| push 後網站沒變 | Pages build 中/快取 | 等 2 分鐘＋清 localStorage（手冊快取節指令） |
+| 某股票網站上沒新季 | 該股不在包內（遲交）或解析失敗 | `ls XBRL/tifrs-2026Q2 \| grep 代號`；無檔＝遲交等補收、有檔＝貼 dry-run 該檔輸出回報 |
+
+#### A-7 遲交補收與缺漏調查 SOP
+
+- **補收**：截止日後約一個月（如 Q2 → 9 月中）可重新下載同季整包覆蓋解壓，重跑 `--quarter 2026Q2`（merge 冪等、只會補新不會壞舊）＋ `--build-screen`，git 同 A-2。
+- **缺漏調查**（區分真缺漏 vs 正常興櫃）：screen.json 裡最新季非本季的代號，逐一檢查 `data/price/{code}.json` 是否存在——**有價格檔＝真上市櫃需調查；無價格檔＝興櫃/公發/已下市，正常不處理**。可照抄的腳本（repo 根目錄執行，季別自行代換）：
+```
+python3 -c "
+import json,os,collections
+scr=json.load(open('data/screen.json'))
+miss=[r for r in scr['rows'] if r['q']!='2026Q2']
+real=[r['c'] for r in miss if os.path.exists('data/price/%s.json'%r['c'])]
+print('非本季共',len(miss),'檔；其中真上市櫃需調查:',len(real),real[:20])
+print('需調查者季別:',dict(collections.Counter(r['q'] for r in miss if r['c'] in set(real))))
+"
+```
+- 需調查清單通常應為個位數（2026-07 清查基準：666 檔幽靈屬正常、真缺漏僅 1589）。清單暴增才代表本季入庫有問題，回頭查 A-6。
+
+#### A-8 磁碟清理
+
+XBRL/ 各季資料夾累積數 GB。資料已入庫 data/fin 後，舊季資料夾可刪（gitignored，刪除不影響 git 與網站）；建議至少保留最近一季以便補收重跑。刪掉的季別若要重跑需重新下載。
 
 ### B. 自動化失敗處理（收到 Actions 失敗信時）
 
