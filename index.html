@@ -434,7 +434,7 @@ function trailing4(rows,i,field){
   return n===4?sum:null;
 }
 
-function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=false,ylog=false}){
+function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=false,ylog=false,dots=false,endLabels=true}){
   const W=460,H=230,PAD={l:14,r:56,t:20,b:26};
   const [hi,setHi]=useState(null);
   const TR=ylog?(v=>Math.sign(v)*Math.log10(1+Math.abs(v))):(v=>v);
@@ -509,7 +509,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
                     <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={ly} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],decimals)}{unit}</text>
                   );
                 })}
-                {!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={endY[si]} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>}
+                {endLabels&&!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={endY[si]} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>}
               </g>
             );
           }
@@ -518,10 +518,11 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
           return (
             <g key={si}>
               <path d={path} fill="none" stroke={s.color} strokeWidth="2"/>
+              {dots&&s.data.map((v,i)=>v==null?null:<circle key={"d"+i} cx={X(i)} cy={Y(v)} r="3" fill={s.color}/>)}
               {s.vlabel&&s.data.map((v,i)=>v==null?null:(
                 <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={Y(v)+(s.vlabel==="below"?15:-7)} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(v,decimals)}{unit}</text>
               ))}
-              {!s.vlabel&&lastIdx!=null&&(
+              {endLabels&&!s.vlabel&&lastIdx!=null&&(
                 <text x={X(lastIdx)+6} y={endY[si]} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>
               )}
             </g>
@@ -1601,7 +1602,7 @@ function App(){
                   ]}/>
               )}
               {FY.hasBorrow&&(
-                <QChart title="檢驗（二）公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog
+                <QChart title="檢驗（二）公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog dots endLabels={false}
                   series={[
                     {name:"短期借款",color:"#ffd54a",data:FY.stbB},
                     {name:"長期借款",color:"#4ade80",data:FY.ltbB},
@@ -1706,24 +1707,6 @@ function App(){
                   {name:"營利率",color:"#ffd54a",data:FY.om},
                   {name:"純益率",color:"#53c8f5",data:FY.nm},
                 ]}/>
-              <QChart title="每股盈餘（年）" labels={FY.labels} unit="元" decimals={2}
-                series={[
-                  {name:"年度 EPS",color:"#53c8f5",bar:true,vlabel:true,data:FY.epsA},
-                ]}/>
-              {FY.epsCagr?(
-                <QChart title={`EPS 年複合成長率（7〜1年・至${FY.cagrY0}年）`} labels={["7年","6年","5年","4年","3年","2年","1年"]} unit="%" decimals={1}
-                  series={[
-                    {name:"EPS 年複合成長率",color:"#ff9142",vlabel:"above",data:FY.epsCagr},
-                  ]}/>
-              ):(
-                <div className="chartpanel"><div className="charthead">EPS 年複合成長率（7〜1年）</div>
-                <div style={{color:"#556",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
-              )}
-              <QChart title="ROE／ROA（年）" labels={FY.labels} unit="%"
-                series={[
-                  {name:"ROE",color:"#ff9142",vlabel:"above",data:FY.roe},
-                  {name:"ROA",color:"#53c8f5",vlabel:"below",data:FY.roa},
-                ]}/>
               {FY.hasDetail&&(
                 <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
                   series={[
@@ -1732,20 +1715,23 @@ function App(){
                     {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
-              <QChart title="營收與現金流（年・億）" labels={FY.labels} unit="" decimals={0}
-                series={[
-                  {name:"營業收入",color:"#8b98a9",data:FY.revB},
-                  {name:"營業現金流",color:"#4ade80",data:FY.ocfB},
-                  {name:"稅後純益",color:"#53c8f5",data:FY.niB},
-                ]}/>
               {FY.hasBorrow&&(
-                <QChart title="公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog
+                <QChart title="公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog dots endLabels={false}
                   series={[
                     {name:"短期借款",color:"#ffd54a",data:FY.stbB},
                     {name:"長期借款",color:"#4ade80",data:FY.ltbB},
                     {name:"借款總額",color:"#c2410c",data:FY.borrowB},
                     {name:"稅後純益",color:"#53c8f5",data:FY.niB},
                   ]}/>
+              )}
+              {FY.epsCagr?(
+                <QChart title={`EPS 年複合成長率（7〜1年・至${FY.cagrY0}年）`} labels={["7年","6年","5年","4年","3年","2年","1年"]} unit="%" decimals={1}
+                  series={[
+                    {name:"EPS 年複合成長率",color:"#ff9142",vlabel:"above",data:FY.epsCagr},
+                  ]}/>
+              ):(
+                <div className="chartpanel"><div className="charthead">EPS 年複合成長率（7〜1年）</div>
+                <div style={{color:"#556",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
               )}
               {FY.stack.some(s=>s)&&(
                 <StackChart title="公司獲利轉換成何種資產？（億）" labels={FY.labels}
@@ -1765,13 +1751,15 @@ function App(){
                     {name:"業外收支",color:"#ff9142",bar:true,data:FY.nonopB},
                   ]}/>
               )}
-              {FY.hasNonop&&(
-                <QChart title="業外投資比本業好嗎？（年）" labels={FY.labels} unit="%"
-                  series={[
-                    {name:"業外投資報酬率",color:"#8b98a9",data:FY.outsideRet},
-                    {name:"股東權益報酬率",color:"#53c8f5",data:FY.roe},
-                  ]}/>
-              )}
+              <QChart title="ROE／ROA（年）" labels={FY.labels} unit="%"
+                series={[
+                  {name:"ROE",color:"#ff9142",vlabel:"above",data:FY.roe},
+                  {name:"ROA",color:"#53c8f5",vlabel:"below",data:FY.roa},
+                ]}/>
+              <QChart title="每股盈餘（年）" labels={FY.labels} unit="元" decimals={2}
+                series={[
+                  {name:"年度 EPS",color:"#53c8f5",bar:true,vlabel:true,data:FY.epsA},
+                ]}/>
               {divY&&(
                 <QChart title="公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
                   series={[
@@ -1780,6 +1768,22 @@ function App(){
                     {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
+              {false&&( /* 暫時隱藏（2026-07-11 Dale 指示，保留備用） */
+                <QChart title="營收與現金流（年・億）" labels={FY.labels} unit="" decimals={0}
+                series={[
+                  {name:"營業收入",color:"#8b98a9",data:FY.revB},
+                  {name:"營業現金流",color:"#4ade80",data:FY.ocfB},
+                  {name:"稅後純益",color:"#53c8f5",data:FY.niB},
+                ]}/>
+              )}
+              {false&&FY.hasNonop&&(
+                <QChart title="業外投資比本業好嗎？（年）" labels={FY.labels} unit="%"
+                  series={[
+                    {name:"業外投資報酬率",color:"#8b98a9",data:FY.outsideRet},
+                    {name:"股東權益報酬率",color:"#53c8f5",data:FY.roe},
+                  ]}/>
+              )}
+            
             </div>
 
             {FY.hasDetail&&(
