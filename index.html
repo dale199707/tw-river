@@ -434,7 +434,7 @@ function trailing4(rows,i,field){
   return n===4?sum:null;
 }
 
-function QChart({title,labels,series,unit="",decimals=1,hover=false}){
+function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=false}){
   const W=460,H=230,PAD={l:14,r:56,t:20,b:26};
   const [hi,setHi]=useState(null);
   const all=series.flatMap(s=>s.data.filter(v=>v!=null));
@@ -443,16 +443,25 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false}){
     <div style={{color:"#556",textAlign:"center",padding:"50px 0"}}>資料不足</div></div>
   );
   const hasBar=series.some(s=>s.bar);
+  const barSeries0=series.filter(s=>s.bar);
   let vmax=Math.max(...all),vmin=Math.min(...all,0);
   if(hasBar) vmax=Math.max(vmax,0);
+  if(stacked&&barSeries0.length){
+    labels.forEach((_,i)=>{
+      let p=0,n=0;
+      barSeries0.forEach(sr=>{const v=sr.data[i];if(v==null)return;if(v>=0)p+=v;else n+=v;});
+      vmax=Math.max(vmax,p); vmin=Math.min(vmin,n);
+    });
+  }
   const span=(vmax-vmin)||1; vmax+=span*0.12; vmin-=span*0.08;
   const X=i=>PAD.l+i*(W-PAD.l-PAD.r)/Math.max(labels.length-1,1);
   const Y=v=>PAD.t+(1-(v-vmin)/(vmax-vmin))*(H-PAD.t-PAD.b);
   const step=Math.max(1,Math.ceil(labels.length/9));
   const barSeries=series.filter(s=>s.bar);
   const slotW=(W-PAD.l-PAD.r)/Math.max(labels.length,1);
-  const bw=Math.max(2,Math.min(10,(slotW*0.75)/Math.max(barSeries.length,1)));
+  const bw=stacked?Math.max(4,Math.min(16,slotW*0.55)):Math.max(2,Math.min(10,(slotW*0.75)/Math.max(barSeries.length,1)));
   let barIdx=-1;
+  const posCum=labels.map(()=>0),negCum=labels.map(()=>0);
   return (
     <div className="chartpanel">
       <div className="charthead">{title}</div>
@@ -462,15 +471,24 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false}){
           const lastIdx=s.data.map((v,i)=>v!=null?i:-1).filter(i=>i>=0).pop();
           if(s.bar){
             barIdx++;
-            const off=-(barSeries.length*bw)/2+barIdx*bw;
+            const off=stacked?-bw/2:-(barSeries.length*bw)/2+barIdx*bw;
+            const seg=s.data.map((v,i)=>{
+              if(v==null) return null;
+              if(!stacked) return {a:0,b:v};
+              if(v>=0){const a=posCum[i];posCum[i]+=v;return {a,b:a+v};}
+              const a=negCum[i];negCum[i]+=v;return {a,b:a+v};
+            });
             return (
               <g key={si}>
-                {s.data.map((v,i)=>v==null?null:(
+                {seg.map((t,i)=>t==null?null:(
                   <rect key={i} x={X(i)+off} width={Math.max(bw-1,1)}
-                    y={Y(Math.max(v,0))} height={Math.max(Math.abs(Y(v)-Y(0)),1)}
+                    y={Y(Math.max(t.a,t.b))} height={Math.max(Math.abs(Y(t.b)-Y(t.a)),1)}
                     fill={s.color} opacity="0.9"/>
                 ))}
-                {lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={Y(s.data[lastIdx])+4} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>}
+                {s.vlabel&&seg.map((t,i)=>t==null?null:(
+                  <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={s.data[i]>=0?Y(Math.max(t.a,t.b))-4:Y(Math.min(t.a,t.b))+12} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],decimals)}{unit}</text>
+                ))}
+                {!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={Y(s.data[lastIdx])+4} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>}
               </g>
             );
           }
@@ -1558,10 +1576,10 @@ function App(){
           {FY&&(
             <div className="charts" style={{marginTop:14}}>
               {FY.hasDetail&&(
-                <QChart title="檢驗（一）公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1}
+                <QChart title="檢驗（一）公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
                   series={[
-                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,data:FY.oe},
-                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,data:FY.depCF},
+                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:true,data:FY.oe},
+                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:true,data:FY.depCF},
                     {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
@@ -1586,7 +1604,7 @@ function App(){
                   ]}/>
               )}
               {FY.hasNonop&&(
-                <QChart title="檢驗（四）公司獲利來源？（年・億）" labels={FY.labels} unit="" decimals={0}
+                <QChart title="檢驗（四）公司獲利來源？（年・億）" labels={FY.labels} unit="" decimals={0} stacked
                   series={[
                     {name:"本業（營業利益）",color:"#53c8f5",bar:true,data:FY.opB},
                     {name:"業外收支",color:"#ff9142",bar:true,data:FY.nonopB},
@@ -1602,9 +1620,9 @@ function App(){
               {divY&&(
                 <QChart title="檢驗（六）公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
                   series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:divY.slice(-10).map(d=>d.cash||null)},
-                    {name:"股票股利（元）",color:"#ffd54a",bar:true,data:divY.slice(-10).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#ff9142",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash||null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
               {FY.epsCagr&&(
@@ -1670,7 +1688,7 @@ function App(){
                 ]}/>
               <QChart title="每股盈餘（年）" labels={FY.labels} unit="元" decimals={2}
                 series={[
-                  {name:"年度 EPS",color:"#53c8f5",bar:true,data:FY.epsA},
+                  {name:"年度 EPS",color:"#53c8f5",bar:true,vlabel:true,data:FY.epsA},
                 ]}/>
               {FY.epsCagr&&(
                 <QChart title={`EPS 年複合成長率（7〜1年・至${FY.cagrY0}年）`} labels={["7年","6年","5年","4年","3年","2年","1年"]} unit="%" decimals={1}
@@ -1684,10 +1702,10 @@ function App(){
                   {name:"ROA",color:"#53c8f5",vlabel:"below",data:FY.roa},
                 ]}/>
               {FY.hasDetail&&(
-                <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1}
+                <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
                   series={[
-                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,data:FY.oe},
-                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,data:FY.depCF},
+                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:true,data:FY.oe},
+                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:true,data:FY.depCF},
                     {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
@@ -1718,7 +1736,7 @@ function App(){
                   ]}/>
               )}
               {FY.hasNonop&&(
-                <QChart title="公司獲利來源？（年・億）" labels={FY.labels} unit="" decimals={0}
+                <QChart title="公司獲利來源？（年・億）" labels={FY.labels} unit="" decimals={0} stacked
                   series={[
                     {name:"本業（營業利益）",color:"#53c8f5",bar:true,data:FY.opB},
                     {name:"業外收支",color:"#ff9142",bar:true,data:FY.nonopB},
@@ -1734,9 +1752,9 @@ function App(){
               {divY&&(
                 <QChart title="公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
                   series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:divY.slice(-10).map(d=>d.cash||null)},
-                    {name:"股票股利（元）",color:"#ffd54a",bar:true,data:divY.slice(-10).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#ff9142",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash||null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
             </div>
