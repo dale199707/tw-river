@@ -2130,11 +2130,13 @@ function App(){
             <RiverChart title="股價淨值比河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.pbHi??null),lo:model.rows.map(r=>r.pbLo??null),avg:model.rows.map(r=>r.pbAvg??null)}}
               nowValue={judge&&judge.pb>0?judge.pb:null} nowLabel="目前淨值比" decimals={2}/>
+{false&&( /* 暫時隱藏（2026-07-12 Dale 指示，保留備用） */
             <RiverChart title="殖利率河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.yAtHi??null),lo:model.rows.map(r=>r.yAtLo??null),avg:model.rows.map(r=>r.yAtAvg??null)}}
               nowValue={judge?judge.y:null} nowLabel="目前殖利率" decimals={1} invert={true}
               hiLabel="高檔殖利率（低%）" loLabel="低檔殖利率（高%）"
               note={(()=>{const ms=model.rows.filter(r=>r.hi!=null&&r.yAtHi==null).map(r=>r.year-1911);return ms.length?`${ms.join("、")} 年未配發股利（或交易所無殖利率資料），無法回推股息，該年段留白。`:null;})()}/>
+            )}
             <RiverChart title="股價營收比河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.psHi??null),lo:model.rows.map(r=>r.psLo??null),avg:model.rows.map(r=>r.psAvg??null)}}
               nowValue={jp!=null&&model.revPSNow>0?jp/model.revPSNow:null} nowLabel="目前營收比" decimals={2}/>
