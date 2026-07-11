@@ -1103,20 +1103,22 @@ function App(){
 
   /* 年度股利彙總（現金/股票各年加總，供股利圖年化呈現） */
   const divY=useMemo(()=>{
-    if(!divRows) return null;
     const m=new Map();
-    divRows.forEach(d=>{
+    (divRows||[]).forEach(d=>{
       const o=m.get(d.y)||{y:d.y,cash:0,stock:0};
       o.cash+=d.cash||0; o.stock+=d.stock||0;
       m.set(d.y,o);
     });
-    if(!m.size) return null;
-    const ys=[...m.keys()];
+    /* 年份範圍＝股利紀錄範圍 ∪ 財報完整年度範圍；缺年＝未發放＝補 0（爬蟲已回補 105+ 全市場）。
+       從未配息的公司也出圖（全 0），呼應檢驗（六）本意 */
+    const q4ys=finRows?finRows.filter(r=>r.s===4).map(r=>r.y-1911):[];
+    const ys=[...m.keys(),...q4ys];
+    if(!ys.length) return null;
     const y0=Math.min(...ys),y1=Math.max(...ys);
     const rows=[];
     for(let y=y0;y<=y1;y++) rows.push(m.get(y)||{y,cash:0,stock:0});
     return rows;
-  },[divRows]);
+  },[divRows,finRows]);
 
   /* 年度現金配息率（該年現金股利合計 ÷ 該年 EPS），供股利發放圖疊折線 */
   const payoutByRocY=useMemo(()=>{
@@ -1722,7 +1724,7 @@ function App(){
                   series={[
                     {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash??null)},
                     {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>(payoutByRocY&&payoutByRocY[d.y]!=null)?payoutByRocY[d.y]:(d.cash===0?0:null))},
                   ]}/>
               )}
               {false&&FY.hasNonop&&(
@@ -1846,7 +1848,7 @@ function App(){
                   series={[
                     {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash??null)},
                     {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>(payoutByRocY&&payoutByRocY[d.y]!=null)?payoutByRocY[d.y]:(d.cash===0?0:null))},
                   ]}/>
               )}
               {false&&( /* 暫時隱藏（2026-07-11 Dale 指示，保留備用） */
