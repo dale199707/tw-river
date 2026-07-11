@@ -434,10 +434,11 @@ function trailing4(rows,i,field){
   return n===4?sum:null;
 }
 
-function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=false}){
+function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=false,ylog=false}){
   const W=460,H=230,PAD={l:14,r:56,t:20,b:26};
   const [hi,setHi]=useState(null);
-  const all=series.flatMap(s=>s.data.filter(v=>v!=null));
+  const TR=ylog?(v=>Math.sign(v)*Math.log10(1+Math.abs(v))):(v=>v);
+  const all=series.flatMap(s=>s.data.filter(v=>v!=null)).map(TR);
   if(!all.length) return (
     <div className="chartpanel"><div className="charthead">{title}</div>
     <div style={{color:"#556",textAlign:"center",padding:"50px 0"}}>資料不足</div></div>
@@ -457,7 +458,18 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
   }
   const span=(vmax-vmin)||1; vmax+=span*0.12; vmin-=span*0.08;
   const X=i=>PAD.l+i*(W-PAD.l-PAD.r)/Math.max(labels.length-1,1);
-  const Y=v=>PAD.t+(1-(v-vmin)/(vmax-vmin))*(H-PAD.t-PAD.b);
+  const Y=v=>PAD.t+(1-(TR(v)-vmin)/(vmax-vmin))*(H-PAD.t-PAD.b);
+  /* 線尾標籤防碰撞：無 vlabel 系列的最後一點標籤，由上而下依序推開至少 11px */
+  const endY={};
+  {
+    const items=series.map((s,si)=>{
+      if(s.vlabel) return null;
+      const li=s.data.map((v,i)=>v!=null?i:-1).filter(i=>i>=0).pop();
+      return li==null?null:{si,y:Y(s.data[li])+4};
+    }).filter(Boolean).sort((a,b)=>a.y-b.y);
+    for(let i=1;i<items.length;i++) if(items[i].y<items[i-1].y+11) items[i].y=items[i-1].y+11;
+    items.forEach(o=>{endY[o.si]=o.y;});
+  }
   const step=Math.max(1,Math.ceil(labels.length/9));
   const barSeries=series.filter(s=>s.bar);
   const slotW=(W-PAD.l-PAD.r)/Math.max(labels.length,1);
@@ -497,7 +509,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
                     <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={ly} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],decimals)}{unit}</text>
                   );
                 })}
-                {!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={Y(s.data[lastIdx])+4} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>}
+                {!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={endY[si]} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>}
               </g>
             );
           }
@@ -510,7 +522,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
                 <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={Y(v)+(s.vlabel==="below"?15:-7)} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(v,decimals)}{unit}</text>
               ))}
               {!s.vlabel&&lastIdx!=null&&(
-                <text x={X(lastIdx)+6} y={Y(s.data[lastIdx])+4} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>
+                <text x={X(lastIdx)+6} y={endY[si]} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>
               )}
             </g>
           );
@@ -1589,7 +1601,7 @@ function App(){
                   ]}/>
               )}
               {FY.hasBorrow&&(
-                <QChart title="檢驗（二）公司資金吃緊嗎？（億）" labels={FY.labels} unit="" decimals={0}
+                <QChart title="檢驗（二）公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog
                   series={[
                     {name:"短期借款",color:"#ffd54a",data:FY.stbB},
                     {name:"長期借款",color:"#4ade80",data:FY.ltbB},
@@ -1721,7 +1733,7 @@ function App(){
                   {name:"稅後純益",color:"#53c8f5",data:FY.niB},
                 ]}/>
               {FY.hasBorrow&&(
-                <QChart title="公司資金吃緊嗎？（億）" labels={FY.labels} unit="" decimals={0}
+                <QChart title="公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog
                   series={[
                     {name:"短期借款",color:"#ffd54a",data:FY.stbB},
                     {name:"長期借款",color:"#4ade80",data:FY.ltbB},
