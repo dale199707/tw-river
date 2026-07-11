@@ -191,6 +191,46 @@ def build_screen():
     折舊年數 = 最新季 ppe / 近4季單季 dep 合計（dep 來自 detail，回補完成的股票才有）
     近4季任一季無法算出單季值則該指標為 null（前端顯示 —、排序墊底）
     """
+    def _split_adjust(qmap):
+        """股票分割/面額變更防護（2026-07 國巨 2327 一拆四實例）：
+        XBRL 的 YTD eps 於分割生效季起改用新股本重編，直接跨季相減會得垃圾單季值。
+        以 ni÷eps 反推各季隱含股數（|eps|≥0.05 才可信，避免捨入雜訊），
+        相鄰可判定季比值跳出 [0.67, 1.5] 視為股本基準斷裂，
+        將斷點以前季別的 eps/bvps 除以累積斷裂係數，換算到最新股本基準。"""
+        keys = sorted(qmap.keys())
+        sh = []
+        for k in keys:
+            r = qmap[k]
+            eps, ni = r.get("eps"), r.get("ni")
+            if eps is not None and ni and abs(eps) >= 0.05:
+                sh.append((k, ni * 1000.0 / eps))
+        if len(sh) < 2:
+            return qmap
+        breaks = []
+        for (k0, s0), (k1, s1) in zip(sh, sh[1:]):
+            if s0 <= 0 or s1 <= 0:
+                continue
+            ratio = s1 / s0
+            if ratio > 1.5 or ratio < 0.67:
+                breaks.append((k1, ratio))
+        if not breaks:
+            return qmap
+        out = {}
+        for k in keys:
+            f = 1.0
+            for bk, br in breaks:
+                if k < bk:
+                    f *= br
+            if f == 1.0:
+                out[k] = qmap[k]
+            else:
+                r = dict(qmap[k])
+                for fld in ("eps", "bvps"):
+                    if r.get(fld) is not None:
+                        r[fld] = r[fld] / f
+                out[k] = r
+        return out
+
     def dec(qmap, key, field):
         v = qmap.get(key, {}).get(field)
         if v is None:
@@ -222,7 +262,7 @@ def build_screen():
         if not (len(code) == 4 and code.isdigit()):
             continue   # 只收普通股；XBRL 建庫產生的基金/受益證券/英數代號 fin 檔不進篩選表
         obj = load_stock(code)
-        qmap = obj.get("q") or {}
+        qmap = _split_adjust(obj.get("q") or {})
         keys = sorted(qmap.keys())
         if len(keys) < 4:
             continue
