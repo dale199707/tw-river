@@ -979,6 +979,7 @@ function App(){
       const om=yr.map(r=>pct(r.op,r.rev));
       const nm=yr.map(r=>pct(r.ni,r.rev));
       const epsA=yr.map(r=>r.eps);
+      const revPS=yr.map(r=>r.rev!=null&&shares?r.rev*1000/shares:null);
       const roe=yr.map(r=>r.ni!=null&&r.eq?r.ni/r.eq*100:null);
       const roa=yr.map(r=>r.ni!=null&&r.assets?r.ni/r.assets*100:null);
       const cogsY=yr.map(r=>(r.rev!=null&&r.gp!=null)?r.rev-r.gp:null);
@@ -1020,7 +1021,7 @@ function App(){
         const ppe=r.ppe||0,inv=r.inv||0,ar=r.ar||0,cash=r.cash_bs||0,lti=r.lti||0;
         return {ppe:ppe/1e5,inv:inv/1e5,ar:ar/1e5,cash:cash/1e5,lti:lti/1e5,other:Math.max(r.assets-ppe-inv-ar-cash-lti,0)/1e5};
       });
-      return {labels,gm,om,nm,epsA,roe,roa,invD,arD,apD,ccc,oe,depCF,
+      return {labels,gm,om,nm,epsA,revPS,roe,roa,invD,arD,apD,ccc,oe,depCF,
         revB,ocfB,niB,opB,nonopB,stbB,ltbB,borrowB,fixedTurn,invPct,arPct,apPct,
         defensive,outsideRet,stack,
         hasDetail:yr.some(r=>r.inv!=null||r.dep!=null),
@@ -1047,6 +1048,19 @@ function App(){
     rows.sort((a,b)=>a.y-b.y||a.s-b.s);
     return rows.length?rows:null;
   },[fin]);
+
+  /* 年度股利彙總（現金/股票各年加總，供股利圖年化呈現） */
+  const divY=useMemo(()=>{
+    if(!divRows) return null;
+    const m=new Map();
+    divRows.forEach(d=>{
+      const o=m.get(d.y)||{y:d.y,cash:0,stock:0};
+      o.cash+=d.cash||0; o.stock+=d.stock||0;
+      m.set(d.y,o);
+    });
+    const rows=[...m.values()].sort((a,b)=>a.y-b.y);
+    return rows.length?rows:null;
+  },[divRows]);
 
   /* 年度現金配息率（該年現金股利合計 ÷ 該年 EPS），供股利發放圖疊折線 */
   const payoutByRocY=useMemo(()=>{
@@ -1548,7 +1562,7 @@ function App(){
                   series={[
                     {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,data:FY.oe},
                     {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,data:FY.depCF},
-                    {name:"每股盈餘",color:"#8b98a9",data:FY.epsA},
+                    {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
               {FY.hasBorrow&&(
@@ -1585,12 +1599,12 @@ function App(){
                     {name:"股東權益報酬率",color:"#53c8f5",data:FY.roe},
                   ]}/>
               )}
-              {divRows&&(
-                <QChart title="檢驗（六）公司獲利能與股東分享嗎？（每次發放）" hover labels={divRows.slice(-20).map(d=>d.s?`${d.y}Q${d.s}`:`${d.y}年`)} unit="" decimals={2}
+              {divY&&(
+                <QChart title="檢驗（六）公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
                   series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:divRows.slice(-20).map(d=>d.cash||null)},
-                    {name:"股票股利（元）",color:"#ffd54a",bar:true,data:divRows.slice(-20).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#ff9142",data:divRows.slice(-20).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:divY.slice(-10).map(d=>d.cash||null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,data:divY.slice(-10).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
               {FY.epsCagr&&(
@@ -1674,7 +1688,7 @@ function App(){
                   series={[
                     {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,data:FY.oe},
                     {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,data:FY.depCF},
-                    {name:"每股盈餘",color:"#8b98a9",data:FY.epsA},
+                    {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
               <QChart title="營收與現金流（年・億）" labels={FY.labels} unit="" decimals={0}
@@ -1717,12 +1731,12 @@ function App(){
                     {name:"股東權益報酬率",color:"#53c8f5",data:FY.roe},
                   ]}/>
               )}
-              {divRows&&(
-                <QChart title="公司獲利能與股東分享嗎？（每次發放）" hover labels={divRows.slice(-20).map(d=>d.s?`${d.y}Q${d.s}`:`${d.y}年`)} unit="" decimals={2}
+              {divY&&(
+                <QChart title="公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
                   series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:divRows.slice(-20).map(d=>d.cash||null)},
-                    {name:"股票股利（元）",color:"#ffd54a",bar:true,data:divRows.slice(-20).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#ff9142",data:divRows.slice(-20).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,data:divY.slice(-10).map(d=>d.cash||null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,data:divY.slice(-10).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
             </div>
