@@ -1271,7 +1271,8 @@ function App(){
   const scrRows=useMemo(()=>{
     if(!scrData||!snap) return null;
     const names={}; snap.companies.forEach(c=>{names[c.code]=c.name;});
-    let rows=scrData.rows.map(r=>({...r,name:names[r.c]||"—"}));
+    /* 只收現行上市／上櫃普通股；XBRL 建庫夾帶的興櫃、公開發行、已下市代號一律排除 */
+    let rows=scrData.rows.filter(r=>names[r.c]).map(r=>({...r,name:names[r.c]}));
     const dep=fDep!==""?+fDep:null, debt=fDebt!==""?+fDebt:null;
     if(dep!=null&&!isNaN(dep)) rows=rows.filter(r=>r.dep!=null&&r.dep<=dep&&r.dep>0);
     if(debt!=null&&!isNaN(debt)) rows=rows.filter(r=>r.debt!=null&&r.debt<=debt&&r.debt>=0);
@@ -1294,6 +1295,7 @@ function App(){
     if(!scrData||!snap) return null;
     const names={}; snap.companies.forEach(c=>{names[c.code]=c.name;});
     let rows=scrData.rows.filter(r=>
+      names[r.c]&&
       r.revG!=null&&r.revG>0&&
       r.niG!=null&&r.niG>0&&
       r.roe!=null&&r.roe>0&&
@@ -1308,7 +1310,7 @@ function App(){
       const pe=(close!=null&&eps4!=null&&eps4>0)?close/eps4:null;
       const growR=(eps4!=null&&r.epsY!=null&&r.epsY>0)?(eps4/r.epsY-1)*100:null;
       const posG=growR!=null&&growR>0;
-      return {...r,name:names[r.c]||"—",close,
+      return {...r,name:names[r.c],close,
         pe, growR,
         pgr:(pe!=null&&posG)?pe/growR:null,
         pLo:(r.peLo!=null&&eps4!=null&&eps4>0)?r.peLo*eps4:null,
