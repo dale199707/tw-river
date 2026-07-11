@@ -1594,7 +1594,7 @@ function App(){
           {FY&&(
             <div className="charts" style={{marginTop:14}}>
               {FY.hasDetail&&(
-                <QChart title="檢驗（一）公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
+                <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
                   series={[
                     {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:"top",data:FY.oe},
                     {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:"bottom",data:FY.depCF},
@@ -1602,45 +1602,12 @@ function App(){
                   ]}/>
               )}
               {FY.hasBorrow&&(
-                <QChart title="檢驗（二）公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog dots endLabels={false}
+                <QChart title="公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog dots endLabels={false}
                   series={[
                     {name:"短期借款",color:"#ffd54a",data:FY.stbB},
                     {name:"長期借款",color:"#4ade80",data:FY.ltbB},
                     {name:"借款總額",color:"#c2410c",data:FY.borrowB},
                     {name:"稅後純益",color:"#53c8f5",data:FY.niB},
-                  ]}/>
-              )}
-              {FY.stack.some(s=>s)&&(
-                <StackChart title="檢驗（三）公司獲利轉換成何種資產？（億）" labels={FY.labels}
-                  series={[
-                    {name:"固定資產",color:"#2f7d5b",data:FY.stack.map(s=>s?s.ppe:0)},
-                    {name:"長期投資",color:"#1e3a8a",data:FY.stack.map(s=>s?s.lti:0)},
-                    {name:"存貨",color:"#65a30d",data:FY.stack.map(s=>s?s.inv:0)},
-                    {name:"應收帳款",color:"#7f1d1d",data:FY.stack.map(s=>s?s.ar:0)},
-                    {name:"現金",color:"#2563eb",data:FY.stack.map(s=>s?s.cash:0)},
-                    {name:"其他",color:"#374151",data:FY.stack.map(s=>s?s.other:0)},
-                  ]}/>
-              )}
-              {FY.hasNonop&&(
-                <QChart title="檢驗（四）公司獲利來源？（年・億）" labels={FY.labels} unit="" decimals={0} stacked
-                  series={[
-                    {name:"本業（營業利益）",color:"#53c8f5",bar:true,data:FY.opB},
-                    {name:"業外收支",color:"#ff9142",bar:true,data:FY.nonopB},
-                  ]}/>
-              )}
-              {FY.hasNonop&&(
-                <QChart title="檢驗（五）業外投資比本業好嗎？（年）" labels={FY.labels} unit="%"
-                  series={[
-                    {name:"業外投資報酬率",color:"#8b98a9",data:FY.outsideRet},
-                    {name:"股東權益報酬率",color:"#53c8f5",data:FY.roe},
-                  ]}/>
-              )}
-              {divY&&(
-                <QChart title="檢驗（六）公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
-                  series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash||null)},
-                    {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
               {FY.epsCagr?(
@@ -1652,6 +1619,47 @@ function App(){
                 <div className="chartpanel"><div className="charthead">EPS 年複合成長率（7〜1年）</div>
                 <div style={{color:"#556",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
               )}
+              {FY.hasNonop&&(
+                <QChart title="公司獲利來源？（年・億）" labels={FY.labels} unit="" decimals={0} stacked
+                  series={[
+                    {name:"本業（營業利益）",color:"#53c8f5",bar:true,data:FY.opB},
+                    {name:"業外收支",color:"#ff9142",bar:true,data:FY.nonopB},
+                  ]}/>
+              )}
+              {FY.stack.some(s=>s)&&(
+                <StackChart title="公司獲利轉換成何種資產？（億）" labels={FY.labels}
+                  series={[
+                    {name:"固定資產",color:"#2f7d5b",data:FY.stack.map(s=>s?s.ppe:0)},
+                    {name:"長期投資",color:"#1e3a8a",data:FY.stack.map(s=>s?s.lti:0)},
+                    {name:"存貨",color:"#65a30d",data:FY.stack.map(s=>s?s.inv:0)},
+                    {name:"應收帳款",color:"#7f1d1d",data:FY.stack.map(s=>s?s.ar:0)},
+                    {name:"現金",color:"#2563eb",data:FY.stack.map(s=>s?s.cash:0)},
+                    {name:"其他",color:"#374151",data:FY.stack.map(s=>s?s.other:0)},
+                  ]}/>
+              )}
+              {FY&&(
+                <QChart title="ROE／ROA（年）" labels={FY.labels} unit="%"
+                  series={[
+                    {name:"ROE",color:"#ff9142",vlabel:"above",data:FY.roe},
+                    {name:"ROA",color:"#53c8f5",vlabel:"below",data:FY.roa},
+                  ]}/>
+              )}
+              {divY&&(
+                <QChart title="公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
+                  series={[
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash||null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
+                  ]}/>
+              )}
+              {false&&FY.hasNonop&&(
+                <QChart title="檢驗（五）業外投資比本業好嗎？（年）" labels={FY.labels} unit="%"
+                  series={[
+                    {name:"業外投資報酬率",color:"#8b98a9",data:FY.outsideRet},
+                    {name:"股東權益報酬率",color:"#53c8f5",data:FY.roe},
+                  ]}/>
+              )}
+            
             </div>
           )}
           <div className="note">位階＝今日收盤價在近 {YEARS_BACK} 年最高／最低區間的位置{model&&model.finUsed?"；EPS／淨值採用財報實際值":""}。折舊／償債／防禦期／現金週期需個別公司財報，回補完成前部分股票為 —。← → 切換上一檔／下一檔，點右上「▦ 完整模式」看河流圖與完整財務指標。</div>
