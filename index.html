@@ -292,7 +292,9 @@ async function loadHistory(code,years,quote,market){
   let allCached=true;
   years.forEach(y=>{
     const c=cacheGet(`twri-y-${code}-${y}`);
-    if(c&&(y<nowY||c._d===todayKey())) cached[y]=c;
+    /* /bundle 時代限流殘留的殘缺年快取（eps/bvps/dps 全空）視為無效，改讀靜態檔自癒 */
+    const defective=c&&y<nowY&&c.eps==null&&c.bvps==null&&c.dps==null;
+    if(c&&!defective&&(y<nowY||c._d===todayKey())) cached[y]=c;
     else allCached=false;
   });
   if(allCached) return years.map(y=>cached[y]);
