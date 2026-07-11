@@ -1098,8 +1098,12 @@ function App(){
       o.cash+=d.cash||0; o.stock+=d.stock||0;
       m.set(d.y,o);
     });
-    const rows=[...m.values()].sort((a,b)=>a.y-b.y);
-    return rows.length?rows:null;
+    if(!m.size) return null;
+    const ys=[...m.keys()];
+    const y0=Math.min(...ys),y1=Math.max(...ys);
+    const rows=[];
+    for(let y=y0;y<=y1;y++) rows.push(m.get(y)||{y,cash:0,stock:0});
+    return rows;
   },[divRows]);
 
   /* 年度現金配息率（該年現金股利合計 ÷ 該年 EPS），供股利發放圖疊折線 */
@@ -1205,6 +1209,37 @@ function App(){
     saveWatch([...watch,entry]);
   };
   const removeKeep=code=>saveWatch(watch.filter(w=>w.code!==code));
+  /* 批次加入保留群組（篩選/盤後選股勾選欄）：已保留者附加群組、未保留者以清單資料建檔。
+     表格情境無個股 model/finView，估價快照欄位留空顯示 —，日後開啟個股重新保留可更新 */
+  const [selScr,setSelScr]=useState({});
+  const [selPick,setSelPick]=useState({});
+  const [selGrp,setSelGrp]=useState("未分類");
+  useEffect(()=>{ if(!scrOpen) setSelScr({}); },[scrOpen]);
+  useEffect(()=>{ if(!pickOpen) setSelPick({}); },[pickOpen]);
+  const batchKeep=(codes,g)=>{
+    if(g==="__new__"){
+      const name=(prompt("新群組名稱：")||"").trim();
+      if(!name) return false;
+      g=name; setSelGrp(name);
+    }
+    const codeSet=new Set(codes);
+    const next=watch.map(w=>{
+      if(!codeSet.has(w.code)) return w;
+      const gs=grpsOf(w);
+      return gs.includes(g)?w:{...w,grps:[...gs,g]};
+    });
+    const haveSet=new Set(watch.map(w=>w.code));
+    const ts=new Date().toISOString().slice(0,10);
+    const adds=codes.filter(c=>!haveSet.has(c)).map(c=>{
+      const co=(snap&&snap.companies.find(x=>x.code===c))||{};
+      const q=(snap&&snap.quotes&&snap.quotes[c])||{};
+      return {code:c,name:co.name||c,ts,grps:[g],snap:{
+        price:q.close??null,eps:null,ipoY:co.ipo||null,debtY:null,depPS:null,depY:null,
+        payout:null,hiUp:null,watchP:null,loDn:null}};
+    });
+    saveWatch([...next,...adds]);
+    return true;
+  };
   const customGrps=grpList.filter(g=>g!=="未分類");
   const onKeepClick=()=>{
     if(!stock) return;
@@ -1459,12 +1494,24 @@ function App(){
           ):(
             <React.Fragment>
               <div className="note" style={{marginTop:0}}>符合 {scrRows.length} 檔{scrRows.length>300?"（僅顯示前 300 檔，請加強篩選條件）":""}。點欄位名稱可升冪／降冪排序，點列開啟該檔股票。折舊／償債年數需個別公司財報，detail 回補完成前部分股票為 —（篩選時自動排除）。資料日期：{scrData.updated}</div>
+              {(()=>{const sel=Object.keys(selScr).filter(c=>selScr[c]);return sel.length>0?(
+                <div className="note" style={{marginTop:6,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <span>已勾選 {sel.length} 檔 →</span>
+                  <select className="grpsel" value={selGrp} onChange={e=>setSelGrp(e.target.value)}>
+                    {[...new Set([...grpList,"未分類"])].map(g=><option key={g} value={g}>{g}</option>)}
+                    <option value="__new__">＋新增群組…</option>
+                  </select>
+                  <button className="grpchip" onClick={()=>{if(batchKeep(sel,selGrp))setSelScr({});}}>加入保留群組</button>
+                  <button className="grpchip" onClick={()=>setSelScr({})}>清除勾選</button>
+                </div>
+              ):null;})()}
               <div className="tablewrap">
                 <table className="pricetable small mono">
-                  <thead><tr>{scrTh("c","股號")}<th>股名</th><th>最新季</th>{scrTh("debt","償債年數")}{scrTh("dep","折舊年數")}</tr></thead>
+                  <thead><tr><th><input type="checkbox" checked={scrRows.length>0&&scrRows.slice(0,300).every(r=>selScr[r.c])} onChange={e=>{const on=e.target.checked;setSelScr(()=>{const o={};if(on)scrRows.slice(0,300).forEach(r=>{o[r.c]=true;});return o;});}}/></th>{scrTh("c","股號")}<th>股名</th><th>最新季</th>{scrTh("debt","償債年數")}{scrTh("dep","折舊年數")}</tr></thead>
                   <tbody>
                     {scrRows.slice(0,300).map(r=>(
                       <tr key={r.c} style={{cursor:"pointer"}} onClick={()=>openKept(r.c)}>
+                        <td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={!!selScr[r.c]} onChange={()=>setSelScr(p=>({...p,[r.c]:!p[r.c]}))}/></td>
                         <td>{r.c}</td>
                         <td>{r.name}</td>
                         <td>{r.q}</td>
@@ -1493,12 +1540,24 @@ function App(){
           ):(
             <React.Fragment>
               <div className="note" style={{marginTop:0}}>四條件全數通過共 {pickRows.length} 檔。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈不列入）；ROE＝近 4 季純益÷最新股東權益。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
+              {(()=>{const sel=Object.keys(selPick).filter(c=>selPick[c]);return sel.length>0?(
+                <div className="note" style={{marginTop:6,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
+                  <span>已勾選 {sel.length} 檔 →</span>
+                  <select className="grpsel" value={selGrp} onChange={e=>setSelGrp(e.target.value)}>
+                    {[...new Set([...grpList,"未分類"])].map(g=><option key={g} value={g}>{g}</option>)}
+                    <option value="__new__">＋新增群組…</option>
+                  </select>
+                  <button className="grpchip" onClick={()=>{if(batchKeep(sel,selGrp))setSelPick({});}}>加入保留群組</button>
+                  <button className="grpchip" onClick={()=>setSelPick({})}>清除勾選</button>
+                </div>
+              ):null;})()}
               <div className="tablewrap">
                 <table className="pricetable small mono">
-                  <thead><tr>{pickTh("c","股號")}<th>股名</th><th>最新季</th>{pickTh("close","現價")}{pickTh("epsY","去年EPS")}{pickTh("eps4","近4季EPS")}{pickTh("pe","本益比")}{pickTh("growR","EPS成長率")}{pickTh("pgr","本益成長比")}{pickTh("pLo","最低PE價")}{pickTh("pLo2","次低PE價")}{pickTh("p12","12倍PE價")}</tr></thead>
+                  <thead><tr><th><input type="checkbox" checked={pickRows.length>0&&pickRows.every(r=>selPick[r.c])} onChange={e=>{const on=e.target.checked;setSelPick(()=>{const o={};if(on)pickRows.forEach(r=>{o[r.c]=true;});return o;});}}/></th>{pickTh("c","股號")}<th>股名</th><th>最新季</th>{pickTh("close","現價")}{pickTh("epsY","去年EPS")}{pickTh("eps4","近4季EPS")}{pickTh("pe","本益比")}{pickTh("growR","EPS成長率")}{pickTh("pgr","本益成長比")}{pickTh("pLo","最低PE價")}{pickTh("pLo2","次低PE價")}{pickTh("p12","12倍PE價")}</tr></thead>
                   <tbody>
                     {pickRows.map(r=>(
                       <tr key={r.c} style={{cursor:"pointer"}} onClick={()=>openKept(r.c)}>
+                        <td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={!!selPick[r.c]} onChange={()=>setSelPick(p=>({...p,[r.c]:!p[r.c]}))}/></td>
                         <td>{r.c}</td>
                         <td>{r.name}</td>
                         <td>{r.q}</td>
@@ -1647,7 +1706,7 @@ function App(){
               {divY&&(
                 <QChart title="公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
                   series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash||null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash??null)},
                     {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
                     {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
@@ -1771,7 +1830,7 @@ function App(){
               {divY&&(
                 <QChart title="公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={2}
                   series={[
-                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash||null)},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash??null)},
                     {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
                     {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
