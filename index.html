@@ -923,6 +923,19 @@ function App(){
       const ppe=r.ppe||0,inv=r.inv||0,ar=r.ar||0,cash=r.cash_bs||0,lti=r.lti||0;
       return {ppe:ppe/1e5,inv:inv/1e5,ar:ar/1e5,cash:cash/1e5,lti:lti/1e5,other:Math.max(r.assets-ppe-inv-ar-cash-lti,0)/1e5};
     });
+    const annualEps={};
+    finRows.forEach(r=>{ if(r.s===4&&r.eps!=null) annualEps[r.y]=r.eps; });
+    const cagrYrs=Object.keys(annualEps).map(Number);
+    const cagrY0=cagrYrs.length?Math.max(...cagrYrs):null;
+    let epsCagr=null;
+    if(cagrY0!=null){
+      const e0=annualEps[cagrY0];
+      const arr=[1,2,3,4,5,6,7].map(n=>{
+        const eb=annualEps[cagrY0-n];
+        return (e0>0&&eb>0)?(Math.pow(e0/eb,1/n)-1)*100:null;
+      });
+      if(arr.some(v=>v!=null)) epsCagr=arr;
+    }
     const lastQ=finRows[finRows.length-1];
     const li2=finRows.length-1;
     const depT4=trailing4(finRows,li2,"dep_q");
@@ -941,7 +954,7 @@ function App(){
     return {labels,gm,om,nm,epsQ,epsT,roe,roa,invD,arD,apD,ccc,oe,depCF,hasDetail,
       revB,ocfB,niB,opB,nonopB,stbB,ltbB,borrowB,fixedTurn,invPct,arPct,apPct,
       defensive,outsideRet,stack,debtQuick,hasBorrow,hasNonop,hasCA,
-      depPS,depYears,debtYears,depB,capexB};
+      depPS,depYears,debtYears,depB,capexB,epsCagr,cagrY0};
   },[finRows,stock]);
 
   const divRows=useMemo(()=>{
@@ -1501,6 +1514,12 @@ function App(){
                     {name:"現金配息率（%・年）",color:"#ff9142",data:divRows.slice(-20).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
+              {finView.epsCagr&&(
+                <QChart title={`EPS 年複合成長率（1〜7年・至${finView.cagrY0}年）`} labels={["1年","2年","3年","4年","5年","6年","7年"]} unit="%" decimals={1}
+                  series={[
+                    {name:"EPS 年複合成長率",color:"#ff9142",data:finView.epsCagr},
+                  ]}/>
+              )}
             </div>
           )}
           <div className="note">位階＝今日收盤價在近 {YEARS_BACK} 年最高／最低區間的位置{model&&model.finUsed?"；EPS／淨值採用財報實際值":""}。折舊／償債／防禦期／現金週期需個別公司財報，回補完成前部分股票為 —。← → 切換上一檔／下一檔，點右上「▦ 完整模式」看河流圖與完整財務指標。</div>
@@ -1561,6 +1580,12 @@ function App(){
                   {name:"單季 EPS",color:"#53c8f5",bar:true,data:finView.epsQ},
                   {name:"近四季累計",color:"#ff9142",data:finView.epsT},
                 ]}/>
+              {finView.epsCagr&&(
+                <QChart title={`EPS 年複合成長率（1〜7年・至${finView.cagrY0}年）`} labels={["1年","2年","3年","4年","5年","6年","7年"]} unit="%" decimals={1}
+                  series={[
+                    {name:"EPS 年複合成長率",color:"#ff9142",data:finView.epsCagr},
+                  ]}/>
+              )}
               <QChart title="ROE／ROA（近四季）" labels={finView.labels} unit="%"
                 series={[
                   {name:"ROE",color:"#ff9142",data:finView.roe},
