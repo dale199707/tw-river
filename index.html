@@ -1642,11 +1642,14 @@ function App(){
                     {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",data:divY.slice(-10).map(d=>payoutByRocY&&payoutByRocY[d.y]!=null?payoutByRocY[d.y]:null)},
                   ]}/>
               )}
-              {FY.epsCagr&&(
+              {FY.epsCagr?(
                 <QChart title={`EPS 年複合成長率（7〜1年・至${FY.cagrY0}年）`} labels={["7年","6年","5年","4年","3年","2年","1年"]} unit="%" decimals={1}
                   series={[
                     {name:"EPS 年複合成長率",color:"#ff9142",vlabel:"above",data:FY.epsCagr},
                   ]}/>
+              ):(
+                <div className="chartpanel"><div className="charthead">EPS 年複合成長率（7〜1年）</div>
+                <div style={{color:"#556",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
               )}
             </div>
           )}
@@ -1707,11 +1710,14 @@ function App(){
                 series={[
                   {name:"年度 EPS",color:"#53c8f5",bar:true,vlabel:true,data:FY.epsA},
                 ]}/>
-              {FY.epsCagr&&(
+              {FY.epsCagr?(
                 <QChart title={`EPS 年複合成長率（7〜1年・至${FY.cagrY0}年）`} labels={["7年","6年","5年","4年","3年","2年","1年"]} unit="%" decimals={1}
                   series={[
                     {name:"EPS 年複合成長率",color:"#ff9142",vlabel:"above",data:FY.epsCagr},
                   ]}/>
+              ):(
+                <div className="chartpanel"><div className="charthead">EPS 年複合成長率（7〜1年）</div>
+                <div style={{color:"#556",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
               )}
               <QChart title="ROE／ROA（年）" labels={FY.labels} unit="%"
                 series={[
