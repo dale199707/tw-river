@@ -593,7 +593,7 @@ function StackChart({title,labels,series,unit="億"}){
 }
 
 /* ============ 河流圖 (SVG) ============ */
-function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",invert=false,hiLabel,loLabel}){
+function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",invert=false,hiLabel,loLabel,note}){
   const W=460,H=260,PAD={l:14,r:44,t:26,b:26};
   const ptsAll=years.map((y,i)=>({y,hi:series.hi[i],lo:series.lo[i],avg:series.avg[i]}));
   const idxValid=ptsAll.map((p,i)=>p.hi!=null?i:-1).filter(i=>i>=0);
@@ -660,6 +660,7 @@ function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",inv
         <span className="lg-lo">{loLabel||("年最低"+unit)}</span>
         {nowValue!=null&&<span className="lg-now">{nowLabel}</span>}
       </div>
+      {note&&<div className="note" style={{marginTop:4,fontSize:11.5}}>{note}</div>}
     </div>
   );
 }
@@ -2132,7 +2133,8 @@ function App(){
             <RiverChart title="殖利率河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.yAtHi??null),lo:model.rows.map(r=>r.yAtLo??null),avg:model.rows.map(r=>r.yAtAvg??null)}}
               nowValue={judge?judge.y:null} nowLabel="目前殖利率" decimals={1} invert={true}
-              hiLabel="高檔殖利率（低%）" loLabel="低檔殖利率（高%）"/>
+              hiLabel="高檔殖利率（低%）" loLabel="低檔殖利率（高%）"
+              note={(()=>{const ms=model.rows.filter(r=>r.hi!=null&&r.yAtHi==null).map(r=>r.year-1911);return ms.length?`${ms.join("、")} 年未配發股利（或交易所無殖利率資料），無法回推股息，該年段留白。`:null;})()}/>
             <RiverChart title="股價營收比河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.psHi??null),lo:model.rows.map(r=>r.psLo??null),avg:model.rows.map(r=>r.psAvg??null)}}
               nowValue={jp!=null&&model.revPSNow>0?jp/model.revPSNow:null} nowLabel="目前營收比" decimals={2}/>
