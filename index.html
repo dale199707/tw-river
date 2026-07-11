@@ -446,10 +446,12 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
   const barSeries0=series.filter(s=>s.bar);
   let vmax=Math.max(...all),vmin=Math.min(...all,0);
   if(hasBar) vmax=Math.max(vmax,0);
+  const stackTop=labels.map(()=>0),stackBot=labels.map(()=>0);
   if(stacked&&barSeries0.length){
     labels.forEach((_,i)=>{
       let p=0,n=0;
       barSeries0.forEach(sr=>{const v=sr.data[i];if(v==null)return;if(v>=0)p+=v;else n+=v;});
+      stackTop[i]=p; stackBot[i]=n;
       vmax=Math.max(vmax,p); vmin=Math.min(vmin,n);
     });
   }
@@ -485,9 +487,16 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
                     y={Y(Math.max(t.a,t.b))} height={Math.max(Math.abs(Y(t.b)-Y(t.a)),1)}
                     fill={s.color} opacity="0.9"/>
                 ))}
-                {s.vlabel&&seg.map((t,i)=>t==null?null:(
-                  <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={s.data[i]>=0?Y(Math.max(t.a,t.b))-4:Y(Math.min(t.a,t.b))+12} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],decimals)}{unit}</text>
-                ))}
+                {s.vlabel&&seg.map((t,i)=>{
+                  if(t==null) return null;
+                  let ly;
+                  if(stacked&&s.vlabel==="top") ly=Y(Math.max(stackTop[i],0))-4;
+                  else if(stacked&&s.vlabel==="bottom") ly=Y(Math.min(stackBot[i],0))+12;
+                  else ly=s.data[i]>=0?Y(Math.max(t.a,t.b))-4:Y(Math.min(t.a,t.b))+12;
+                  return (
+                    <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={ly} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],decimals)}{unit}</text>
+                  );
+                })}
                 {!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={Y(s.data[lastIdx])+4} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],decimals)}{unit}</text>}
               </g>
             );
@@ -1470,20 +1479,16 @@ function App(){
             <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>載入中…</div>
           ):(
             <React.Fragment>
-              <div className="note" style={{marginTop:0}}>四條件全數通過共 {pickRows.length} 檔{pickRows.length>300?"（僅顯示前 300 檔）":""}。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈不列入）；ROE＝近 4 季純益÷最新股東權益。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
+              <div className="note" style={{marginTop:0}}>四條件全數通過共 {pickRows.length} 檔。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈不列入）；ROE＝近 4 季純益÷最新股東權益。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
               <div className="tablewrap">
                 <table className="pricetable small mono">
-                  <thead><tr>{pickTh("c","股號")}<th>股名</th><th>最新季</th>{pickTh("revG","營收成長")}{pickTh("niG","盈餘成長")}{pickTh("roe","ROE")}{pickTh("debt","償債年數")}{pickTh("close","現價")}{pickTh("epsY","去年EPS")}{pickTh("eps4","近4季EPS")}{pickTh("pe","本益比")}{pickTh("growR","EPS成長率")}{pickTh("pgr","本益成長比")}{pickTh("pLo","最低PE價")}{pickTh("pLo2","次低PE價")}{pickTh("p12","12倍PE價")}</tr></thead>
+                  <thead><tr>{pickTh("c","股號")}<th>股名</th><th>最新季</th>{pickTh("close","現價")}{pickTh("epsY","去年EPS")}{pickTh("eps4","近4季EPS")}{pickTh("pe","本益比")}{pickTh("growR","EPS成長率")}{pickTh("pgr","本益成長比")}{pickTh("pLo","最低PE價")}{pickTh("pLo2","次低PE價")}{pickTh("p12","12倍PE價")}</tr></thead>
                   <tbody>
-                    {pickRows.slice(0,300).map(r=>(
+                    {pickRows.map(r=>(
                       <tr key={r.c} style={{cursor:"pointer"}} onClick={()=>openKept(r.c)}>
                         <td>{r.c}</td>
                         <td>{r.name}</td>
                         <td>{r.q}</td>
-                        <td>{fmt(r.revG,1)}%</td>
-                        <td>{fmt(r.niG,1)}%</td>
-                        <td>{fmt(r.roe,1)}%</td>
-                        <td>{fmt(r.debt,2)}</td>
                         <td>{fmt(r.close,2)}</td>
                         <td>{fmt(r.epsY,2)}</td>
                         <td>{fmt(r.eps4,2)}</td>
@@ -1578,8 +1583,8 @@ function App(){
               {FY.hasDetail&&(
                 <QChart title="檢驗（一）公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
                   series={[
-                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:true,data:FY.oe},
-                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:true,data:FY.depCF},
+                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:"top",data:FY.oe},
+                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:"bottom",data:FY.depCF},
                     {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
@@ -1704,8 +1709,8 @@ function App(){
               {FY.hasDetail&&(
                 <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
                   series={[
-                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:true,data:FY.oe},
-                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:true,data:FY.depCF},
+                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:"top",data:FY.oe},
+                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:"bottom",data:FY.depCF},
                     {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
