@@ -860,10 +860,13 @@ function App(){
     let finUsed=false;
     if(finRows&&finRows.length){
       const annual={};
-      finRows.forEach(r=>{ if(r.s===4) annual[r.y]={eps:r.eps,bvps:r.bvps}; });
+      finRows.forEach(r=>{ if(r.s===4) annual[r.y]={eps:r.eps,bvps:r.bvps,rev:r.rev}; });
       const li=finRows.length-1;
       const epsTTM=trailing4(finRows,li,"eps_q");
       const bvpsLatest=finRows[li].bvps;
+      const sharesM=stock.capital?stock.capital/10:null;
+      const revTTM=trailing4(finRows,li,"rev_q");
+      const revPSTTM=(revTTM!=null&&sharesM)?revTTM*1000/sharesM:null;
       const lastY=rows[rows.length-1].year;
       rows.forEach(r=>{
         if(!r||r.hi==null) return;
@@ -879,6 +882,11 @@ function App(){
         if(bvps!=null&&bvps>0){
           finUsed=true;
           r.bvps=bvps; r.pbHi=r.hi/bvps; r.pbLo=r.lo/bvps; r.pbAvg=r.avg/bvps;
+        }
+        /* 股價營收比（PSR）：年度每股營收＝全年營收(千元)×1000÷股數；最新年用近4季 */
+        const revA=(r.year===lastY&&revPSTTM!=null)?revPSTTM:((a.rev!=null&&sharesM)?a.rev*1000/sharesM:null);
+        if(revA!=null&&revA>0){
+          r.revPS=revA; r.psHi=r.hi/revA; r.psLo=r.lo/revA; r.psAvg=r.avg/revA;
         }
       });
     }
@@ -907,7 +915,7 @@ function App(){
     const p7=past.slice(-7);
     const payout7=p7.length?p7.reduce((s,r)=>s+r.dps/r.eps,0)/p7.length:null;
     const dpsLast=past.length?past[past.length-1].dps:null;
-    return {rows,epsNow,bvpsNow,dpsNow,priceBand,peBand,pbBand,yBand,payoutLast,payout7,dpsLast,finUsed};
+    return {rows,epsNow,bvpsNow,dpsNow,revPSNow:revPSTTM??null,priceBand,peBand,pbBand,yBand,payoutLast,payout7,dpsLast,finUsed};
   },[hist,stock,finRows]);
 
   const finView=useMemo(()=>{
@@ -2122,6 +2130,9 @@ function App(){
               series={{hi:model.rows.map(r=>r.yAtHi??null),lo:model.rows.map(r=>r.yAtLo??null),avg:model.rows.map(r=>r.yAtAvg??null)}}
               nowValue={judge?judge.y:null} nowLabel="目前殖利率" decimals={1} invert={true}
               hiLabel="高檔殖利率（低%）" loLabel="低檔殖利率（高%）"/>
+            <RiverChart title="股價營收比河流圖" years={hist.years}
+              series={{hi:model.rows.map(r=>r.psHi??null),lo:model.rows.map(r=>r.psLo??null),avg:model.rows.map(r=>r.psAvg??null)}}
+              nowValue={jp!=null&&model.revPSNow>0?jp/model.revPSNow:null} nowLabel="目前營收比" decimals={2}/>
           </div>
           <div className="note" style={{marginTop:12}}>
             資料來源：臺灣證券交易所（openapi.twse.com.tw、www.twse.com.tw）、證券櫃檯買賣中心（www.tpex.org.tw）。歷年 EPS／淨值／股息係以各年 12 月（當年度取最近月份）之月均本益比、淨值比、殖利率與月均價回推，與財報實際數字可能有小幅差異。本工具僅供個人研究參考，非投資建議。
