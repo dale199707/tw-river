@@ -1621,9 +1621,9 @@ function App(){
           </div>
           {mode==="detail"&&<div className="tabs">
             <button className={"tab"+(tab==="info"?" active":"")} onClick={()=>setTab("info")}>基本資訊</button>
+            <button className={"tab"+(tab==="fin"?" active":"")} onClick={()=>setTab("fin")}>財務指標</button>
             <button className={"tab"+(tab==="judge"?" active":"")} onClick={()=>setTab("judge")}>價格位階</button>
             <button className={"tab"+(tab==="charts"?" active":"")} onClick={()=>setTab("charts")}>河流圖</button>
-            <button className={"tab"+(tab==="fin"?" active":"")} onClick={()=>setTab("fin")}>財務指標</button>
             <button className={"tab"+(tab==="table"?" active":"")} onClick={()=>setTab("table")}>詳細數據</button>
             <button className={"tab"+(tab==="news"?" active":"")} onClick={()=>setTab("news")}>消息</button>
           </div>}
