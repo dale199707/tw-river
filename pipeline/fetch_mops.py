@@ -291,7 +291,13 @@ def build_screen():
         latest = keys[-1]
         last8 = [q_back(latest, i) for i in range(7, -1, -1)]
         cur4, prev4 = last8[4:], last8[:4]
-        rev_g = growth(sum4(qmap, cur4, "rev"), sum4(qmap, prev4, "rev"))
+        rev_c = sum4(qmap, cur4, "rev")
+        rev_p = sum4(qmap, prev4, "rev")
+        rev_g = growth(rev_c, rev_p)
+        rev_t = 1 if (rev_c is not None and rev_p is not None and rev_p <= 0 and rev_c > 0) else 0
+        # e4m＝近4季各單季EPS最小值（選股條件8：每季單季EPS皆>n；任一季缺值則 None）
+        eps_sing = [dec(qmap, k, "eps") for k in cur4]
+        e4m = round(min(eps_sing), 2) if all(v is not None for v in eps_sing) else None
         ni_c = sum4(qmap, cur4, "ni")
         ni_p = sum4(qmap, prev4, "ni")
         ni_g = growth(ni_c, ni_p)
@@ -324,7 +330,7 @@ def build_screen():
             except Exception:
                 pes = []
         rows.append({"c": code, "q": latest, "debt": debt_y, "dep": dep_y,
-                     "revG": rev_g, "niG": ni_g, "nt": ni_t, "epsG": eps_g, "roe": roe, "navG": nav_g,
+                     "revG": rev_g, "rt": rev_t, "niG": ni_g, "nt": ni_t, "e4m": e4m, "epsG": eps_g, "roe": roe, "navG": nav_g,
                      "eps4": round(eps_c, 2) if eps_c is not None else None,
                      "epsY": round(eps_y, 2) if eps_y is not None else None,
                      "peLo": round(pes[0], 2) if pes else None,

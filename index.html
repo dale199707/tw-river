@@ -108,6 +108,7 @@ button:disabled{opacity:.5;cursor:default}
 .pricetable.small th,.pricetable.small td{padding:5px 9px;font-size:12.5px;white-space:nowrap}
 .pricetable.small td{text-align:right}
 .pricetable.small td:first-child{text-align:left}
+.cn{width:58px;background:#0d1522;border:1px solid #24324a;color:#e8eef7;border-radius:6px;padding:2px 6px;font-size:12.5px}
 </style>
 </head>
 <body>
@@ -803,6 +804,8 @@ function App(){
   const [scrOpen,setScrOpen]=useState(false);
   const [pickOpen,setPickOpen]=useState(false);
   const [pickSort,setPickSort]=useState({k:"growR",d:-1});
+  /* 選股條件（篩選與盤後選股合併，2026-07-12）：預設勾選＝原盤後選股四條件 */
+  const [fc,setFc]=useState({rev:true,ni:true,roe:true,debtOn:true,debtN:5,depOn:false,depN:8,peOn:false,peN:15,pgrOn:false,pgrLo:0,pgrHi:2,e4qOn:false,e4qN:0});
   const [scrData,setScrData]=useState(null);
   const [scrErr,setScrErr]=useState(null);
   const [fDep,setFDep]=useState("");
@@ -1296,12 +1299,16 @@ function App(){
   const pickRows=useMemo(()=>{
     if(!scrData||!snap) return null;
     const names={}; snap.companies.forEach(c=>{names[c.code]=c.name;});
+    const NX=v=>{const x=parseFloat(v);return isNaN(x)?null:x;};
+    const dN=NX(fc.debtN),pN=NX(fc.depN),peN=NX(fc.peN),gHi=NX(fc.pgrHi),gLo=NX(fc.pgrLo),eN=NX(fc.e4qN);
     let rows=scrData.rows.filter(r=>
       names[r.c]&&
-      r.revG!=null&&r.revG>0&&
-      ((r.niG!=null&&r.niG>0)||r.nt===1)&&
-      r.roe!=null&&r.roe>0&&
-      r.debt!=null&&r.debt>=0&&r.debt<5
+      (!fc.rev||((r.revG!=null&&r.revG>0)||r.rt===1))&&
+      (!fc.ni||((r.niG!=null&&r.niG>0)||r.nt===1))&&
+      (!fc.roe||(r.roe!=null&&r.roe>0))&&
+      (!fc.debtOn||dN==null||(r.debt!=null&&r.debt>=0&&r.debt<dN))&&
+      (!fc.depOn||pN==null||(r.dep!=null&&r.dep>=0&&r.dep<pN))&&
+      (!fc.e4qOn||eN==null||(r.e4m!=null&&r.e4m>eN))
     ).map(r=>{
       /* 估價衍生欄：
          EPS成長率＝連續四季EPS÷去年EPS−1（%，須為正）；
@@ -1319,6 +1326,8 @@ function App(){
         pLo2:(r.peLo2!=null&&eps4!=null&&eps4>0)?r.peLo2*eps4:null,
         p12:(eps4!=null&&eps4>0)?12*eps4:null};
     });
+    if(fc.peOn&&peN!=null) rows=rows.filter(r=>r.pe!=null&&r.pe<peN);
+    if(fc.pgrOn) rows=rows.filter(r=>r.pgr!=null&&(gHi==null||r.pgr<gHi)&&(gLo==null||r.pgr>gLo));
     const {k,d}=pickSort;
     rows.sort((a,b)=>{
       const va=a[k],vb=b[k];
@@ -1330,7 +1339,7 @@ function App(){
       return a.c<b.c?-1:1;
     });
     return rows;
-  },[scrData,snap,pickSort]);
+  },[scrData,snap,pickSort,fc]);
   const pickTh=(k,label)=>(
     <th className="sortth" onClick={()=>setPickSort(s=>({k,d:s.k===k?-s.d:1}))}>
       {label}{pickSort.k===k?(pickSort.d===1?" ▲":" ▼"):""}
@@ -1409,8 +1418,10 @@ function App(){
       <div className="topbar">
         <h1>台股估價河流圖</h1>
         <button className="watchbtn" onClick={()=>setWatchOpen(o=>!o)}>★ 保留股（{watch.length}）</button>
+        {false&&( /* 已併入「選股」（2026-07-12 Dale 指示，保留備用） */
         <button className={"watchbtn"+(scrOpen?" active":"")} onClick={()=>{setScrOpen(o=>!o);setPickOpen(false);}}>⚙ 篩選</button>
-        <button className={"watchbtn"+(pickOpen?" active":"")} onClick={()=>{setPickOpen(o=>!o);setScrOpen(false);}}>◎ 盤後選股</button>
+        )}
+        <button className={"watchbtn"+(pickOpen?" active":"")} onClick={()=>{setPickOpen(o=>!o);setScrOpen(false);}}>◎ 選股</button>
         <div className="modebtns">
           <button className={"watchbtn"+(mode==="screen"&&!scrOpen&&!pickOpen?" active":"")} onClick={()=>{setMode("screen");setScrOpen(false);setPickOpen(false);}}>⚡ 快速瀏覽</button>
           <button className={"watchbtn"+(mode==="detail"&&!scrOpen&&!pickOpen?" active":"")} onClick={()=>{setMode("detail");setScrOpen(false);setPickOpen(false);}}>▦ 完整模式</button>
@@ -1546,8 +1557,34 @@ function App(){
       {pickOpen&&(
         <div className="card">
           <div className="cardtitle" style={{display:"flex",alignItems:"center",gap:16,flexWrap:"wrap"}}>
-            <span>盤後選股</span>
-            <span style={{fontSize:12.5,color:"var(--dim)",fontWeight:400}}>營收成長＋盈餘成長＋ROE＞0＋償債年數＜5 年</span>
+            <span>選股</span>
+            <span style={{fontSize:12.5,color:"var(--dim)",fontWeight:400}}>勾選條件即時重算</span>
+          </div>
+          <div className="note" style={{marginTop:0,display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
+            <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.rev} onChange={e=>setFc(p=>({...p,rev:e.target.checked}))}/> 營收成長（含虧轉盈）</label>
+            <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.ni} onChange={e=>setFc(p=>({...p,ni:e.target.checked}))}/> 盈餘成長（含虧轉盈）</label>
+            <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.roe} onChange={e=>setFc(p=>({...p,roe:e.target.checked}))}/> ROE＞0</label>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.debtOn} onChange={e=>setFc(p=>({...p,debtOn:e.target.checked}))}/> 償債年數＜</label>
+              <input className="cn" type="number" step="0.5" value={fc.debtN} onChange={e=>setFc(p=>({...p,debtN:e.target.value}))}/> 年
+            </span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.depOn} onChange={e=>setFc(p=>({...p,depOn:e.target.checked}))}/> 折舊年數＜</label>
+              <input className="cn" type="number" step="0.5" value={fc.depN} onChange={e=>setFc(p=>({...p,depN:e.target.value}))}/> 年
+            </span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.peOn} onChange={e=>setFc(p=>({...p,peOn:e.target.checked}))}/> 本益比＜</label>
+              <input className="cn" type="number" step="1" value={fc.peN} onChange={e=>setFc(p=>({...p,peN:e.target.value}))}/>
+            </span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.pgrOn} onChange={e=>setFc(p=>({...p,pgrOn:e.target.checked}))}/> 本益成長比＞</label>
+              <input className="cn" type="number" step="0.1" value={fc.pgrLo} onChange={e=>setFc(p=>({...p,pgrLo:e.target.value}))}/> 且＜
+              <input className="cn" type="number" step="0.1" value={fc.pgrHi} onChange={e=>setFc(p=>({...p,pgrHi:e.target.value}))}/>
+            </span>
+            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
+              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.e4qOn} onChange={e=>setFc(p=>({...p,e4qOn:e.target.checked}))}/> 近4季各單季EPS＞</label>
+              <input className="cn" type="number" step="0.5" value={fc.e4qN} onChange={e=>setFc(p=>({...p,e4qN:e.target.value}))}/> 元
+            </span>
           </div>
           {scrErr?(
             <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>{scrErr}</div>
@@ -1555,7 +1592,7 @@ function App(){
             <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>載入中…</div>
           ):(
             <React.Fragment>
-              <div className="note" style={{marginTop:0}}>四條件全數通過共 {pickRows.length} 檔。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈亦列入）；ROE＝近 4 季純益÷最新股東權益。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
+              <div className="note" style={{marginTop:0}}>符合勾選條件共 {pickRows.length} 檔。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈亦列入）；ROE＝近 4 季純益÷最新股東權益。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
               {(()=>{const sel=Object.keys(selPick).filter(c=>selPick[c]);return sel.length>0?(
                 <div className="note" style={{marginTop:6,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                   <span>已勾選 {sel.length} 檔 →</span>
