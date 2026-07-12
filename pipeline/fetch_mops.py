@@ -293,7 +293,10 @@ def build_screen():
         cur4, prev4 = last8[4:], last8[:4]
         rev_g = growth(sum4(qmap, cur4, "rev"), sum4(qmap, prev4, "rev"))
         ni_c = sum4(qmap, cur4, "ni")
-        ni_g = growth(ni_c, sum4(qmap, prev4, "ni"))
+        ni_p = sum4(qmap, prev4, "ni")
+        ni_g = growth(ni_c, ni_p)
+        # 虧轉盈旗標（2026-07-12 Dale 指示納入盤後選股）：前4季 ni<=0 且近4季 ni>0（連續8季仍為前提）
+        ni_t = 1 if (ni_c is not None and ni_p is not None and ni_p <= 0 and ni_c > 0) else 0
         eps_c = sum4(qmap, cur4, "eps")
         eps_g = growth(eps_c, sum4(qmap, prev4, "eps"))
         eq = qmap.get(latest, {}).get("eq")
@@ -321,7 +324,7 @@ def build_screen():
             except Exception:
                 pes = []
         rows.append({"c": code, "q": latest, "debt": debt_y, "dep": dep_y,
-                     "revG": rev_g, "niG": ni_g, "epsG": eps_g, "roe": roe, "navG": nav_g,
+                     "revG": rev_g, "niG": ni_g, "nt": ni_t, "epsG": eps_g, "roe": roe, "navG": nav_g,
                      "eps4": round(eps_c, 2) if eps_c is not None else None,
                      "epsY": round(eps_y, 2) if eps_y is not None else None,
                      "peLo": round(pes[0], 2) if pes else None,

@@ -508,10 +508,10 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
                   else if(stacked&&s.vlabel==="bottom") ly=Y(Math.min(stackBot[i],0))+12;
                   else ly=s.data[i]>=0?Y(Math.max(t.a,t.b))-4:Y(Math.min(t.a,t.b))+12;
                   return (
-                    <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={ly} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],s.decimals??decimals)}{unit}</text>
+                    <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={ly} fill={s.color} fontSize="11" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],s.decimals??decimals)}{unit}</text>
                   );
                 })}
-                {endLabels&&!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={endY[si]} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],s.decimals??decimals)}{unit}</text>}
+                {endLabels&&!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={endY[si]} fill={s.color} fontSize="12" fontWeight="700" className="mono">{fmt(s.data[lastIdx],s.decimals??decimals)}{unit}</text>}
               </g>
             );
           }
@@ -522,16 +522,16 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
               <path d={path} fill="none" stroke={s.color} strokeWidth="2"/>
               {dots&&s.data.map((v,i)=>v==null?null:<circle key={"d"+i} cx={X(i)} cy={Y(v)} r="3" fill={s.color}/>)}
               {s.vlabel&&s.data.map((v,i)=>v==null?null:(
-                <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={Y(v)+(s.vlabel==="below"?15:-7)} fill={s.color} fontSize="9.5" fontWeight="700" textAnchor="middle" className="mono">{fmt(v,s.decimals??decimals)}{unit}</text>
+                <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={Y(v)+(s.vlabel==="below"?15:-7)} fill={s.color} fontSize="11" fontWeight="700" textAnchor="middle" className="mono">{fmt(v,s.decimals??decimals)}{unit}</text>
               ))}
               {endLabels&&!s.vlabel&&lastIdx!=null&&(
-                <text x={X(lastIdx)+6} y={endY[si]} fill={s.color} fontSize="10.5" fontWeight="700" className="mono">{fmt(s.data[lastIdx],s.decimals??decimals)}{unit}</text>
+                <text x={X(lastIdx)+6} y={endY[si]} fill={s.color} fontSize="12" fontWeight="700" className="mono">{fmt(s.data[lastIdx],s.decimals??decimals)}{unit}</text>
               )}
             </g>
           );
         })}
         {labels.map((lb,i)=>i%step===0?(
-          <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="9.5" textAnchor="middle" className="mono">{lb}</text>
+          <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="11" textAnchor="middle" className="mono">{lb}</text>
         ):null)}
         {hover&&hi!=null&&(()=>{
           const items=series.filter(s=>s.bar).map(s=>({name:s.name,color:s.color,v:s.data[hi]})).filter(o=>o.v!=null);
@@ -541,7 +541,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
               <line x1={X(hi)} x2={X(hi)} y1={PAD.t-4} y2={H-PAD.b} stroke="#667" strokeWidth="1" strokeDasharray="3,3"/>
               <text x={PAD.l} y={13} fill="#8b98a9" fontSize="10" fontWeight="700" className="mono">{labels[hi]}</text>
               {items.map((o,k)=>(
-                <text key={k} x={PAD.l+52+k*130} y={13} fill={o.color} fontSize="10.5" fontWeight="700" className="mono">{o.name} {fmt(o.v,decimals)}{unit}</text>
+                <text key={k} x={PAD.l+52+k*130} y={13} fill={o.color} fontSize="12" fontWeight="700" className="mono">{o.name} {fmt(o.v,decimals)}{unit}</text>
               ))}
             </g>
           );
@@ -1299,7 +1299,7 @@ function App(){
     let rows=scrData.rows.filter(r=>
       names[r.c]&&
       r.revG!=null&&r.revG>0&&
-      r.niG!=null&&r.niG>0&&
+      ((r.niG!=null&&r.niG>0)||r.nt===1)&&
       r.roe!=null&&r.roe>0&&
       r.debt!=null&&r.debt>=0&&r.debt<5
     ).map(r=>{
@@ -1555,7 +1555,7 @@ function App(){
             <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>載入中…</div>
           ):(
             <React.Fragment>
-              <div className="note" style={{marginTop:0}}>四條件全數通過共 {pickRows.length} 檔。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈不列入）；ROE＝近 4 季純益÷最新股東權益。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
+              <div className="note" style={{marginTop:0}}>四條件全數通過共 {pickRows.length} 檔。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈亦列入）；ROE＝近 4 季純益÷最新股東權益。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。資料日期：{scrData.updated}</div>
               {(()=>{const sel=Object.keys(selPick).filter(c=>selPick[c]);return sel.length>0?(
                 <div className="note" style={{marginTop:6,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                   <span>已勾選 {sel.length} 檔 →</span>
@@ -1769,6 +1769,16 @@ function App(){
             <div className="infoitem"><div className="k">掛牌年數</div><div className="v mono">{yearsAgo(stock.ipo)}</div></div>
             <div className="infoitem"><div className="k">董事長</div><div className="v">{stock.chair}</div></div>
             <div className="infoitem"><div className="k">本益比</div><div className="v mono">{fmt(stock.quote.pe,2)}</div></div>
+            <div className="infoitem"><div className="k">本益成長比</div><div className="v mono">{(()=>{
+              if(!model||!(model.epsNow>0)||stock.quote.close==null||!finView||!finView.Y) return "—";
+              const YB=finView.Y;
+              let epsY=null;
+              for(let i=YB.labels.length-1;i>=0;i--){ if(YB.labels[i]!=="近4季"){ epsY=YB.epsA[i]; break; } }
+              if(!(epsY>0)) return "—（去年虧損）";
+              const growR=(model.epsNow/epsY-1)*100;
+              if(!(growR>0)) return "—（成長率為負）";
+              return fmt(stock.quote.close/model.epsNow/growR,2);
+            })()}</div></div>
             <div className="infoitem"><div className="k">股價淨值比</div><div className="v mono">{fmt(stock.quote.pb,2)}</div></div>
             <div className="infoitem"><div className="k">殖利率</div><div className="v mono">{stock.quote.yield!=null?fmt(stock.quote.yield,2)+"%":"—"}</div></div>
           </div>
