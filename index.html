@@ -1658,8 +1658,8 @@ function App(){
             <div className="infoitem"><div className="k">七年配息率</div><div className="v mono">{model&&model.payout7!=null?fmt(model.payout7*100,0)+"%":"—"}</div></div>
             <div className="infoitem"><div className="k">業主盈餘（近四季）</div><div className="v mono">{finView&&lastOf(finView.oe)!=null?fmt(lastOf(finView.oe),1)+" 元":"—"}</div></div>
             <div className="infoitem"><div className="k">折舊利益</div><div className="v mono">{finView&&finView.depPS!=null?fmt(finView.depPS,1)+" 元":"—"}</div></div>
-            <div className="infoitem"><div className="k">折舊年數</div><div className="v mono">{finView&&finView.depYears!=null?fmt(finView.depYears,1)+" 年":"—"}</div></div>
-            <div className="infoitem"><div className="k">償債年數</div><div className="v mono">{finView&&finView.debtYears!=null?fmt(finView.debtYears,1)+" 年":"—"}</div></div>
+            <div className="infoitem"><div className="k">折舊年數</div><div className="v mono">{finView&&finView.depYears!=null?fmt(finView.depYears,2)+" 年":"—"}</div></div>
+            <div className="infoitem"><div className="k">償債年數</div><div className="v mono">{finView&&finView.debtYears!=null?fmt(finView.debtYears,2)+" 年":"—"}</div></div>
             <div className="infoitem"><div className="k">防禦期</div><div className="v mono">{finView&&lastOf(finView.defensive)!=null?fmt(lastOf(finView.defensive),0)+" 天":"—"}</div></div>
             <div className="infoitem"><div className="k">現金週期</div><div className="v mono">{finView&&lastOf(finView.ccc)!=null?fmt(lastOf(finView.ccc),0)+" 天":"—"}</div></div>
             <div className="infoitem"><div className="k">掛牌年數</div><div className="v mono">{yearsAgo(stock.ipo)} 年</div></div>
@@ -1669,16 +1669,16 @@ function App(){
               if(!model||!(model.epsNow>0)||stock.quote.close==null||!FY) return "—";
               let epsY=null;
               for(let i=FY.labels.length-1;i>=0;i--){ if(FY.labels[i]!=="近4季"){ epsY=FY.epsA[i]; break; } }
-              if(!(epsY>0)) return "—";
+              if(!(epsY>0)) return "—（去年虧損）";
               const growR=(model.epsNow/epsY-1)*100;
-              if(!(growR>0)) return "—";
+              if(!(growR>0)) return "—（成長率為負）";
               return fmt(stock.quote.close/model.epsNow/growR,2);
             })()}</div></div>
           </div>
           {FY&&(
             <div className="charts" style={{marginTop:14}}>
               {FY.hasDetail&&(
-                <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
+                <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="" decimals={1} stacked
                   series={[
                     {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:"top",data:FY.oe},
                     {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:"bottom",data:FY.depCF},
@@ -1728,7 +1728,7 @@ function App(){
                     {name:"ROA",color:"#53c8f5",vlabel:"below",data:FY.roa},
                   ]}/>
               )}
-              <QChart title="每股盈餘（年）" labels={FY.labels} unit="元" decimals={1}
+              <QChart title="每股盈餘（年）" labels={FY.labels} unit="" decimals={1}
                 series={[
                   {name:"年度 EPS",color:"#53c8f5",bar:true,vlabel:true,data:FY.epsA},
                 ]}/>
@@ -1804,7 +1804,7 @@ function App(){
                   {name:"純益率",color:"#53c8f5",data:FY.nm},
                 ]}/>
               {FY.hasDetail&&(
-                <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="元" decimals={1} stacked
+                <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="" decimals={1} stacked
                   series={[
                     {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:"top",data:FY.oe},
                     {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:"bottom",data:FY.depCF},
@@ -1852,7 +1852,7 @@ function App(){
                   {name:"ROE",color:"#ff9142",vlabel:"above",data:FY.roe},
                   {name:"ROA",color:"#53c8f5",vlabel:"below",data:FY.roa},
                 ]}/>
-              <QChart title="每股盈餘（年）" labels={FY.labels} unit="元" decimals={1}
+              <QChart title="每股盈餘（年）" labels={FY.labels} unit="" decimals={1}
                 series={[
                   {name:"年度 EPS",color:"#53c8f5",bar:true,vlabel:true,data:FY.epsA},
                 ]}/>
