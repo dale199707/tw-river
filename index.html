@@ -108,7 +108,10 @@ button:disabled{opacity:.5;cursor:default}
 .pricetable.small th,.pricetable.small td{padding:5px 9px;font-size:12.5px;white-space:nowrap}
 .pricetable.small td{text-align:right}
 .pricetable.small td:first-child{text-align:left}
-.cn{width:58px;background:#0d1522;border:1px solid #24324a;color:#e8eef7;border-radius:6px;padding:2px 6px;font-size:12.5px}
+.fcs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;margin-bottom:4px}
+.fcs .fitem{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--dim)}
+.fcs .fitem label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
+.fcs .fitem input[type=number]{width:56px;padding:3px 6px;font-size:12.5px;border-radius:6px}
 </style>
 </head>
 <body>
@@ -1560,30 +1563,30 @@ function App(){
             <span>選股</span>
             <span style={{fontSize:12.5,color:"var(--dim)",fontWeight:400}}>勾選條件即時重算</span>
           </div>
-          <div className="note" style={{marginTop:0,display:"flex",gap:16,alignItems:"center",flexWrap:"wrap"}}>
-            <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.rev} onChange={e=>setFc(p=>({...p,rev:e.target.checked}))}/> 營收成長（含虧轉盈）</label>
-            <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.ni} onChange={e=>setFc(p=>({...p,ni:e.target.checked}))}/> 盈餘成長（含虧轉盈）</label>
-            <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.roe} onChange={e=>setFc(p=>({...p,roe:e.target.checked}))}/> ROE＞0</label>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
-              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.debtOn} onChange={e=>setFc(p=>({...p,debtOn:e.target.checked}))}/> 償債年數＜</label>
-              <input className="cn" type="number" step="0.5" value={fc.debtN} onChange={e=>setFc(p=>({...p,debtN:e.target.value}))}/> 年
+          <div className="fcs">
+            <span className="fitem"><label><input type="checkbox" checked={fc.rev} onChange={e=>setFc(p=>({...p,rev:e.target.checked}))}/>營收成長（含虧轉盈）</label></span>
+            <span className="fitem"><label><input type="checkbox" checked={fc.ni} onChange={e=>setFc(p=>({...p,ni:e.target.checked}))}/>盈餘成長（含虧轉盈）</label></span>
+            <span className="fitem"><label><input type="checkbox" checked={fc.roe} onChange={e=>setFc(p=>({...p,roe:e.target.checked}))}/>ROE＞0</label></span>
+            <span className="fitem">
+              <label><input type="checkbox" checked={fc.debtOn} onChange={e=>setFc(p=>({...p,debtOn:e.target.checked}))}/>償債年數＜</label>
+              <input type="number" step="0.5" value={fc.debtN} onChange={e=>setFc(p=>({...p,debtN:e.target.value}))}/>年
             </span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
-              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.depOn} onChange={e=>setFc(p=>({...p,depOn:e.target.checked}))}/> 折舊年數＜</label>
-              <input className="cn" type="number" step="0.5" value={fc.depN} onChange={e=>setFc(p=>({...p,depN:e.target.value}))}/> 年
+            <span className="fitem">
+              <label><input type="checkbox" checked={fc.depOn} onChange={e=>setFc(p=>({...p,depOn:e.target.checked}))}/>折舊年數＜</label>
+              <input type="number" step="0.5" value={fc.depN} onChange={e=>setFc(p=>({...p,depN:e.target.value}))}/>年
             </span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
-              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.peOn} onChange={e=>setFc(p=>({...p,peOn:e.target.checked}))}/> 本益比＜</label>
-              <input className="cn" type="number" step="1" value={fc.peN} onChange={e=>setFc(p=>({...p,peN:e.target.value}))}/>
+            <span className="fitem">
+              <label><input type="checkbox" checked={fc.peOn} onChange={e=>setFc(p=>({...p,peOn:e.target.checked}))}/>本益比＜</label>
+              <input type="number" step="1" value={fc.peN} onChange={e=>setFc(p=>({...p,peN:e.target.value}))}/>
             </span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
-              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.pgrOn} onChange={e=>setFc(p=>({...p,pgrOn:e.target.checked}))}/> 本益成長比＞</label>
-              <input className="cn" type="number" step="0.1" value={fc.pgrLo} onChange={e=>setFc(p=>({...p,pgrLo:e.target.value}))}/> 且＜
-              <input className="cn" type="number" step="0.1" value={fc.pgrHi} onChange={e=>setFc(p=>({...p,pgrHi:e.target.value}))}/>
+            <span className="fitem">
+              <label><input type="checkbox" checked={fc.pgrOn} onChange={e=>setFc(p=>({...p,pgrOn:e.target.checked}))}/>本益成長比＞</label>
+              <input type="number" step="0.1" value={fc.pgrLo} onChange={e=>setFc(p=>({...p,pgrLo:e.target.value}))}/>且＜
+              <input type="number" step="0.1" value={fc.pgrHi} onChange={e=>setFc(p=>({...p,pgrHi:e.target.value}))}/>
             </span>
-            <span style={{display:"inline-flex",alignItems:"center",gap:4}}>
-              <label style={{cursor:"pointer"}}><input type="checkbox" checked={fc.e4qOn} onChange={e=>setFc(p=>({...p,e4qOn:e.target.checked}))}/> 近4季各單季EPS＞</label>
-              <input className="cn" type="number" step="0.5" value={fc.e4qN} onChange={e=>setFc(p=>({...p,e4qN:e.target.value}))}/> 元
+            <span className="fitem">
+              <label><input type="checkbox" checked={fc.e4qOn} onChange={e=>setFc(p=>({...p,e4qOn:e.target.checked}))}/>近4季各單季EPS＞</label>
+              <input type="number" step="0.5" value={fc.e4qN} onChange={e=>setFc(p=>({...p,e4qN:e.target.value}))}/>元
             </span>
           </div>
           {scrErr?(
