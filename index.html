@@ -441,7 +441,7 @@ function trailing4(rows,i,field){
 }
 
 function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=false,ylog=false,dots=false,endLabels=true}){
-  const W=460,H=230,PAD={l:14,r:56,t:20,b:26};
+  const W=460,H=252,PAD={l:14,r:60,t:34,b:28};
   const [hi,setHi]=useState(null);
   const TR=ylog?(v=>Math.sign(v)*Math.log10(1+Math.abs(v))):(v=>v);
   const all=series.flatMap(s=>s.data.filter(v=>v!=null)).map(TR);
@@ -473,7 +473,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
       const li=s.data.map((v,i)=>v!=null?i:-1).filter(i=>i>=0).pop();
       return li==null?null:{si,y:Y(s.data[li])+4};
     }).filter(Boolean).sort((a,b)=>a.y-b.y);
-    for(let i=1;i<items.length;i++) if(items[i].y<items[i-1].y+11) items[i].y=items[i-1].y+11;
+    for(let i=1;i<items.length;i++) if(items[i].y<items[i-1].y+15) items[i].y=items[i-1].y+15;
     items.forEach(o=>{endY[o.si]=o.y;});
   }
   const step=Math.max(1,Math.ceil(labels.length/9));
@@ -507,15 +507,17 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
                 ))}
                 {s.vlabel&&seg.map((t,i)=>{
                   if(t==null) return null;
-                  let ly;
-                  if(stacked&&s.vlabel==="top") ly=Y(Math.max(stackTop[i],0))-4;
-                  else if(stacked&&s.vlabel==="bottom") ly=Y(Math.min(stackBot[i],0))+12;
-                  else ly=s.data[i]>=0?Y(Math.max(t.a,t.b))-4:Y(Math.min(t.a,t.b))+12;
+                  let ly,up;
+                  if(stacked&&s.vlabel==="top"){ly=Y(Math.max(stackTop[i],0))-5;up=true;}
+                  else if(stacked&&s.vlabel==="bottom"){ly=Y(Math.min(stackBot[i],0))+14;up=false;}
+                  else if(s.data[i]>=0){ly=Y(Math.max(t.a,t.b))-5;up=true;}
+                  else {ly=Y(Math.min(t.a,t.b))+14;up=false;}
+                  if(i%2) ly+=up?-13:13;
                   return (
-                    <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={ly} fill={s.color} fontSize="11" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],s.decimals??decimals)}{unit}</text>
+                    <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={ly} fill={s.color} fontSize="13" fontWeight="700" textAnchor="middle" className="mono">{fmt(s.data[i],s.decimals??decimals)}{unit}</text>
                   );
                 })}
-                {endLabels&&!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={endY[si]} fill={s.color} fontSize="12" fontWeight="700" className="mono">{fmt(s.data[lastIdx],s.decimals??decimals)}{unit}</text>}
+                {endLabels&&!s.vlabel&&lastIdx!=null&&<text x={X(lastIdx)+6+bw} y={endY[si]} fill={s.color} fontSize="14" fontWeight="700" className="mono">{fmt(s.data[lastIdx],s.decimals??decimals)}{unit}</text>}
               </g>
             );
           }
@@ -526,16 +528,16 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
               <path d={path} fill="none" stroke={s.color} strokeWidth="2"/>
               {dots&&s.data.map((v,i)=>v==null?null:<circle key={"d"+i} cx={X(i)} cy={Y(v)} r="3" fill={s.color}/>)}
               {s.vlabel&&s.data.map((v,i)=>v==null?null:(
-                <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={Y(v)+(s.vlabel==="below"?15:-7)} fill={s.color} fontSize="11" fontWeight="700" textAnchor="middle" className="mono">{fmt(v,s.decimals??decimals)}{unit}</text>
+                <text key={"vl"+i} x={Math.min(Math.max(X(i),PAD.l+16),W-PAD.r)} y={Y(v)+(s.vlabel==="below"?16+(i%2?13:0):-8-(i%2?13:0))} fill={s.color} fontSize="13" fontWeight="700" textAnchor="middle" className="mono">{fmt(v,s.decimals??decimals)}{unit}</text>
               ))}
               {endLabels&&!s.vlabel&&lastIdx!=null&&(
-                <text x={X(lastIdx)+6} y={endY[si]} fill={s.color} fontSize="12" fontWeight="700" className="mono">{fmt(s.data[lastIdx],s.decimals??decimals)}{unit}</text>
+                <text x={X(lastIdx)+6} y={endY[si]} fill={s.color} fontSize="14" fontWeight="700" className="mono">{fmt(s.data[lastIdx],s.decimals??decimals)}{unit}</text>
               )}
             </g>
           );
         })}
         {labels.map((lb,i)=>i%step===0?(
-          <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="11" textAnchor="middle" className="mono">{lb}</text>
+          <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="12" textAnchor="middle" className="mono">{lb}</text>
         ):null)}
         {hover&&hi!=null&&(()=>{
           const items=series.filter(s=>s.bar).map(s=>({name:s.name,color:s.color,v:s.data[hi]})).filter(o=>o.v!=null);
@@ -545,7 +547,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
               <line x1={X(hi)} x2={X(hi)} y1={PAD.t-4} y2={H-PAD.b} stroke="#667" strokeWidth="1" strokeDasharray="3,3"/>
               <text x={PAD.l} y={13} fill="#8b98a9" fontSize="10" fontWeight="700" className="mono">{labels[hi]}</text>
               {items.map((o,k)=>(
-                <text key={k} x={PAD.l+52+k*130} y={13} fill={o.color} fontSize="12" fontWeight="700" className="mono">{o.name} {fmt(o.v,decimals)}{unit}</text>
+                <text key={k} x={PAD.l+52+k*130} y={13} fill={o.color} fontSize="13" fontWeight="700" className="mono">{o.name} {fmt(o.v,decimals)}{unit}</text>
               ))}
             </g>
           );
