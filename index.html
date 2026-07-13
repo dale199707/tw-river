@@ -647,13 +647,13 @@ function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",inv
           <g>
             <rect x={PAD.l} y={Y(guides.zone)} width={W-PAD.l-PAD.r} height={Math.max(H-PAD.b-Y(guides.zone),0)} fill="rgba(21,128,61,0.13)"/>
             <line x1={PAD.l} x2={W-PAD.r} y1={Y(guides.zone)} y2={Y(guides.zone)} stroke="#15803d" strokeWidth="1.2" opacity="0.7"/>
-            <text x={W-PAD.r+3} y={Y(guides.zone)+4} fill="#15803d" fontSize="11" fontWeight="700" className="mono">{guides.zoneLabel||guides.zone}</text>
+            {guides.zoneLabel&&<text x={W-PAD.r+3} y={Y(guides.zone)+4} fill="#15803d" fontSize="11" fontWeight="700" className="mono">{guides.zoneLabel}</text>}
           </g>
         )}
         {guides&&(guides.lines||[]).map((g,gi)=>(
           <g key={"gd"+gi}>
             <line x1={PAD.l} x2={W-PAD.r} y1={Y(g.v)} y2={Y(g.v)} stroke={g.color||"#6b7480"} strokeWidth="1.4" strokeDasharray="7 5" opacity="0.85"/>
-            <text x={W-PAD.r+3} y={Y(g.v)+4} fill={g.color||"#6b7480"} fontSize="11" fontWeight="700" className="mono">{g.label||g.v}</text>
+            {g.label&&<text x={W-PAD.r+3} y={Y(g.v)+4} fill={g.color||"#6b7480"} fontSize="11" fontWeight="700" className="mono">{g.label}</text>}
           </g>
         ))}
         <path d={bandPath} fill="rgba(14,127,184,0.10)"/>
@@ -1792,16 +1792,11 @@ function App(){
                     {name:"業外收支",color:"#d95f0e",bar:true,data:FY.nonopB},
                   ]}/>
               )}
-              {FY.stack.some(s=>s)&&(
-                <StackChart title="公司獲利轉換成何種資產？（億）" labels={FY.labels}
-                  series={[
-                    {name:"固定資產",color:"#2f7d5b",data:FY.stack.map(s=>s?s.ppe:0)},
-                    {name:"長期投資",color:"#1e3a8a",data:FY.stack.map(s=>s?s.lti:0)},
-                    {name:"存貨",color:"#65a30d",data:FY.stack.map(s=>s?s.inv:0)},
-                    {name:"應收帳款",color:"#7f1d1d",data:FY.stack.map(s=>s?s.ar:0)},
-                    {name:"現金",color:"#2563eb",data:FY.stack.map(s=>s?s.cash:0)},
-                    {name:"其他",color:"#374151",data:FY.stack.map(s=>s?s.other:0)},
-                  ]}/>
+              {hist&&model&&(
+                <RiverChart title="本益比河流圖" years={hist.years}
+                series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
+                nowValue={model.epsNow>0&&stock.quote.close!=null?stock.quote.close/model.epsNow:null} nowLabel="目前本益比（收盤價）" decimals={1}
+                guides={{zone:10,lines:[{v:12,color:"#2563eb"},{v:15,color:"#dc2626"}]}}/>
               )}
               {FY&&(
                 <QChart title="ROE／ROA（年）" labels={FY.labels} unit="%" decimals={0}
@@ -1822,11 +1817,16 @@ function App(){
                     {name:"現金配息率（%・年）",color:"#d95f0e",vlabel:"above",decimals:0,data:divY.slice(-10).map(d=>(payoutByRocY&&payoutByRocY[d.y]!=null)?payoutByRocY[d.y]:(d.cash===0?0:null))},
                   ]}/>
               )}
-              {hist&&model&&(
-                <RiverChart title="本益比河流圖" years={hist.years}
-                series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
-                nowValue={model.epsNow>0&&stock.quote.close!=null?stock.quote.close/model.epsNow:null} nowLabel="目前本益比（收盤價）" decimals={1}
-                guides={{zone:10,zoneLabel:"10倍",lines:[{v:12,label:"12倍",color:"#2563eb"},{v:15,label:"15倍",color:"#dc2626"}]}}/>
+              {FY.stack.some(s=>s)&&(
+                <StackChart title="公司獲利轉換成何種資產？（億）" labels={FY.labels}
+                  series={[
+                    {name:"固定資產",color:"#2f7d5b",data:FY.stack.map(s=>s?s.ppe:0)},
+                    {name:"長期投資",color:"#1e3a8a",data:FY.stack.map(s=>s?s.lti:0)},
+                    {name:"存貨",color:"#65a30d",data:FY.stack.map(s=>s?s.inv:0)},
+                    {name:"應收帳款",color:"#7f1d1d",data:FY.stack.map(s=>s?s.ar:0)},
+                    {name:"現金",color:"#2563eb",data:FY.stack.map(s=>s?s.cash:0)},
+                    {name:"其他",color:"#374151",data:FY.stack.map(s=>s?s.other:0)},
+                  ]}/>
               )}
               {false&&FY.hasNonop&&(
                 <QChart title="檢驗（五）業外投資比本業好嗎？（年）" labels={FY.labels} unit="%"
@@ -2240,7 +2240,7 @@ function App(){
               series={{hi:model.rows.map(r=>r.hi??null),lo:model.rows.map(r=>r.lo??null),avg:model.rows.map(r=>r.avg??null)}}
               nowValue={jp} nowLabel="輸入股價" decimals={jp!=null&&jp>=500?0:1}/>
             <RiverChart title="本益比河流圖" years={hist.years}
-              guides={{zone:10,zoneLabel:"10倍",lines:[{v:12,label:"12倍",color:"#2563eb"},{v:15,label:"15倍",color:"#dc2626"}]}}
+              guides={{zone:10,lines:[{v:12,color:"#2563eb"},{v:15,color:"#dc2626"}]}}
               series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
               nowValue={judge&&judge.pe>0?judge.pe:null} nowLabel="目前本益比" decimals={1}/>
             <RiverChart title="股價淨值比河流圖" years={hist.years}
