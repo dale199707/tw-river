@@ -9,9 +9,9 @@
 <script src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
 <style>
 :root{
-  --bg:#f4efe4;--panel:#fdfbf4;--panel2:#ede6d5;--border:#d8cfba;
-  --text:#243040;--dim:#6b7480;--hi:#d95f0e;--lo:#0e7fb8;--avg:#3c4858;
-  --gold:#a97d0a;--green:#15803d;--red:#dc2626;--accent:#2563eb;
+  --bg:#0d1117;--panel:#131a24;--panel2:#1a2332;--border:#2a3648;
+  --text:#e6edf3;--dim:#8b98a9;--hi:#ff9142;--lo:#53c8f5;--avg:#e6edf3;
+  --gold:#ffd54a;--green:#4ade80;--red:#f87171;--accent:#3b82f6;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:var(--bg);color:var(--text);font-family:"Microsoft JhengHei","PingFang TC","Noto Sans TC",sans-serif;min-height:100vh}
@@ -57,10 +57,10 @@ button:disabled{opacity:.5;cursor:default}
 .grpchip.active{color:var(--gold);border-color:var(--gold)}
 .grpsel{background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:2px 4px;max-width:110px}
 .menubg{position:fixed;inset:0;z-index:40}
-.keepmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:41;background:var(--panel2);border:1px solid var(--border);border-radius:9px;min-width:150px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.18)}
+.keepmenu{position:absolute;top:calc(100% + 6px);left:0;z-index:41;background:var(--panel2);border:1px solid var(--border);border-radius:9px;min-width:150px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,0.5)}
 .keepmenu-t{font-size:11px;color:var(--dim);padding:5px 10px 3px}
 .keepmenu-i{font-size:13.5px;color:var(--text);padding:7px 10px;border-radius:6px;cursor:pointer;white-space:nowrap}
-.keepmenu-i:hover{background:rgba(0,0,0,0.05)}
+.keepmenu-i:hover{background:rgba(255,255,255,0.07)}
 .keepmenu-i.new{color:var(--gold)}
 .scrf{font-size:12.5px;color:var(--dim);font-weight:400;display:flex;align-items:center;gap:5px}
 .scrf input{width:70px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12.5px;padding:4px 7px}
@@ -73,7 +73,7 @@ button:disabled{opacity:.5;cursor:default}
 @media(max-width:700px){.svband{grid-template-columns:repeat(2,1fr)}}
 .keyhint{color:var(--dim);font-size:11.5px;border:1px solid var(--border);border-radius:5px;padding:2px 7px}
 @media (hover:none){.keyhint{display:none}}
-.pricetable tbody tr:hover td{background:rgba(0,0,0,0.03)}
+.pricetable tbody tr:hover td{background:rgba(255,255,255,0.03)}
 .pricetable{width:100%;border-collapse:collapse;font-size:14px}
 .pricetable th,.pricetable td{border:1px solid var(--border);padding:8px 10px;text-align:center}
 .pricetable th{background:var(--panel2);color:var(--dim);font-weight:400}
@@ -83,17 +83,17 @@ button:disabled{opacity:.5;cursor:default}
 .charts.river{grid-template-columns:repeat(2,minmax(0,1fr));max-width:940px;margin:0 auto}
 @media(max-width:760px){.charts.river{grid-template-columns:1fr}}
 @media(max-width:520px){.charts{grid-template-columns:1fr}}
-.chartpanel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:8px 8px 4px}
+.chartpanel{background:#000;border:1px solid var(--border);border-radius:12px;padding:8px 8px 4px;--hi:#ff9142;--lo:#53c8f5;--avg:#e6edf3;--gold:#ffd54a;--dim:#8b98a9;--green:#4ade80;--red:#f87171;--accent:#3b82f6;--text:#e6edf3}
 .charthead{text-align:center;font-size:15px;font-weight:700;color:#fff;padding:6px 0;background:linear-gradient(90deg,transparent,#1a56db,transparent);border-radius:6px;margin-bottom:4px}
 .legend{display:flex;justify-content:center;gap:16px;font-size:12px;color:var(--dim);padding:2px 0 6px}
 .legend span::before{content:"—";margin-right:4px;font-weight:700}
 .lg-hi::before{color:var(--hi)}.lg-lo::before{color:var(--lo)}.lg-avg::before{color:var(--avg)}.lg-now::before{content:"●";color:var(--gold)}
 .verdict{display:inline-block;padding:3px 12px;border-radius:999px;font-size:13px;font-weight:700}
-.v0{background:#0d3a24;color:#15803d}.v1{background:#123a33;color:#34d399}.v2{background:#3a3312;color:#a97d0a}.v3{background:#3a2412;color:#fb923c}.v4{background:#3a1212;color:#dc2626}
+.v0{background:#0d3a24;color:#4ade80}.v1{background:#123a33;color:#34d399}.v2{background:#3a3312;color:#ffd54a}.v3{background:#3a2412;color:#fb923c}.v4{background:#3a1212;color:#f87171}
 .judge{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
 .judge input{width:130px}
-.posbar{position:relative;height:14px;border-radius:7px;background:linear-gradient(90deg,#16a34a,#eab308,#dc2626);flex:1;min-width:200px}
-.posmark{position:absolute;top:-4px;width:3px;height:22px;background:#243040;border-radius:2px;box-shadow:0 0 6px rgba(36,48,64,.6)}
+.posbar{position:relative;height:14px;border-radius:7px;background:linear-gradient(90deg,#16a34a,#eab308,#f87171);flex:1;min-width:200px}
+.posmark{position:absolute;top:-4px;width:3px;height:22px;background:#fff;border-radius:2px;box-shadow:0 0 6px #fff}
 .progress{padding:24px;text-align:center;color:var(--dim)}
 .progressbar{height:6px;background:var(--panel2);border-radius:3px;margin:12px auto;max-width:400px;overflow:hidden}
 .progressbar div{height:100%;background:var(--accent);transition:width .3s}
@@ -448,7 +448,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
   const all=series.flatMap(s=>s.data.filter(v=>v!=null)).map(TR);
   if(!all.length) return (
     <div className="chartpanel"><div className="charthead">{title}</div>
-    <div style={{color:"#9a9280",textAlign:"center",padding:"50px 0"}}>資料不足</div></div>
+    <div style={{color:"#556",textAlign:"center",padding:"50px 0"}}>資料不足</div></div>
   );
   const hasBar=series.some(s=>s.bar);
   const barSeries0=series.filter(s=>s.bar);
@@ -538,7 +538,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
           );
         })}
         {labels.map((lb,i)=>i%step===0?(
-          <text key={i} x={X(i)} y={H-8} fill="#6b7480" fontSize="12" textAnchor="middle" className="mono">{lb}</text>
+          <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="12" textAnchor="middle" className="mono">{lb}</text>
         ):null)}
         {hover&&hi!=null&&(()=>{
           const items=series.filter(s=>s.bar).map(s=>({name:s.name,color:s.color,v:s.data[hi]})).filter(o=>o.v!=null);
@@ -546,7 +546,7 @@ function QChart({title,labels,series,unit="",decimals=1,hover=false,stacked=fals
           return (
             <g pointerEvents="none">
               <line x1={X(hi)} x2={X(hi)} y1={PAD.t-4} y2={H-PAD.b} stroke="#667" strokeWidth="1" strokeDasharray="3,3"/>
-              <text x={PAD.l} y={13} fill="#6b7480" fontSize="10" fontWeight="700" className="mono">{labels[hi]}</text>
+              <text x={PAD.l} y={13} fill="#8b98a9" fontSize="10" fontWeight="700" className="mono">{labels[hi]}</text>
               {items.map((o,k)=>(
                 <text key={k} x={PAD.l+52+k*130} y={13} fill={o.color} fontSize="13" fontWeight="700" className="mono">{o.name} {fmt(o.v,decimals)}{unit}</text>
               ))}
@@ -588,9 +588,9 @@ function StackChart({title,labels,series,unit="億"}){
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
         {areas.map((a,i)=><path key={i} d={a.path} fill={a.color} opacity="0.85"/>)}
         {labels.map((lb,i)=>i%step===0?(
-          <text key={i} x={X(i)} y={H-8} fill="#6b7480" fontSize="9.5" textAnchor="middle" className="mono">{lb}</text>
+          <text key={i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="9.5" textAnchor="middle" className="mono">{lb}</text>
         ):null)}
-        <text x={W-PAD.r+4} y={Y(sums[n-1])+4} fill="#3c4858" fontSize="10.5" fontWeight="700" className="mono">{fmt(sums[n-1],0)}{unit}</text>
+        <text x={W-PAD.r+4} y={Y(sums[n-1])+4} fill="#e6edf3" fontSize="10.5" fontWeight="700" className="mono">{fmt(sums[n-1],0)}{unit}</text>
       </svg>
       <div className="legend" style={{flexWrap:"wrap"}}>
         {series.map((s,si)=><span key={si} style={{color:"var(--dim)"}}><span style={{color:s.color,fontWeight:700}}>■</span> {s.name}</span>)}
@@ -606,7 +606,7 @@ function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",inv
   const idxValid=ptsAll.map((p,i)=>p.hi!=null?i:-1).filter(i=>i>=0);
   if(!idxValid.length) return (
     <div className="chartpanel"><div className="charthead">{title}</div>
-    <div style={{color:"#9a9280",textAlign:"center",padding:"60px 0"}}>此期間無足夠資料</div></div>
+    <div style={{color:"#556",textAlign:"center",padding:"60px 0"}}>此期間無足夠資料</div></div>
   );
   /* 裁掉頭尾完全無資料的年份（新上市股不留左半空白）；中間缺口保留、填色分段 */
   const pts=ptsAll.slice(idxValid[0],idxValid[idxValid.length-1]+1);
@@ -646,18 +646,18 @@ function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",inv
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
         {guides&&guides.zone!=null&&(
           <g>
-            <rect x={PAD.l} y={Y(guides.zone)} width={W-PAD.l-PAD.r} height={Math.max(H-PAD.b-Y(guides.zone),0)} fill="rgba(21,128,61,0.13)"/>
-            <line x1={PAD.l} x2={W-PAD.r} y1={Y(guides.zone)} y2={Y(guides.zone)} stroke="#15803d" strokeWidth="1.2" opacity="0.7"/>
-            {guides.zoneLabel&&<text x={W-PAD.r+3} y={Y(guides.zone)+4} fill="#15803d" fontSize="11" fontWeight="700" className="mono">{guides.zoneLabel}</text>}
+            <rect x={PAD.l} y={Y(guides.zone)} width={W-PAD.l-PAD.r} height={Math.max(H-PAD.b-Y(guides.zone),0)} fill="rgba(74,222,128,0.13)"/>
+            <line x1={PAD.l} x2={W-PAD.r} y1={Y(guides.zone)} y2={Y(guides.zone)} stroke="#4ade80" strokeWidth="1.2" opacity="0.7"/>
+            {guides.zoneLabel&&<text x={W-PAD.r+3} y={Y(guides.zone)+4} fill="#4ade80" fontSize="11" fontWeight="700" className="mono">{guides.zoneLabel}</text>}
           </g>
         )}
         {guides&&(guides.lines||[]).map((g,gi)=>(
           <g key={"gd"+gi}>
-            <line x1={PAD.l} x2={W-PAD.r} y1={Y(g.v)} y2={Y(g.v)} stroke={g.color||"#6b7480"} strokeWidth="1.4" strokeDasharray="7 5" opacity="0.85"/>
-            {g.label&&<text x={W-PAD.r+3} y={Y(g.v)+4} fill={g.color||"#6b7480"} fontSize="11" fontWeight="700" className="mono">{g.label}</text>}
+            <line x1={PAD.l} x2={W-PAD.r} y1={Y(g.v)} y2={Y(g.v)} stroke={g.color||"#8b98a9"} strokeWidth="1.4" strokeDasharray="7 5" opacity="0.85"/>
+            {g.label&&<text x={W-PAD.r+3} y={Y(g.v)+4} fill={g.color||"#8b98a9"} fontSize="11" fontWeight="700" className="mono">{g.label}</text>}
           </g>
         ))}
-        <path d={bandPath} fill="rgba(14,127,184,0.10)"/>
+        <path d={bandPath} fill="rgba(83,200,245,0.07)"/>
         <path d={path("hi")} fill="none" stroke="var(--hi)" strokeWidth="2.2"/>
         <path d={path("avg")} fill="none" stroke="var(--avg)" strokeWidth="1.2" opacity="0.9"/>
         <path d={path("lo")} fill="none" stroke="var(--lo)" strokeWidth="2.2"/>
@@ -675,7 +675,7 @@ function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",inv
           </g>
         )}
         {pts.map((p,i)=>(
-          <text key={"x"+i} x={X(i)} y={H-8} fill="#6b7480" fontSize="11" textAnchor="middle" className="mono">{p.y-1911}</text>
+          <text key={"x"+i} x={X(i)} y={H-8} fill="#8b98a9" fontSize="11" textAnchor="middle" className="mono">{p.y-1911}</text>
         ))}
       </svg>
       <div className="legend">
@@ -777,7 +777,7 @@ function NewsView({stock}){
     })();
     return ()=>{ dead=true; };
   },[stock.code]);
-  const row={padding:"10px 0",borderBottom:"1px solid rgba(0,0,0,.08)"};
+  const row={padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,.06)"};
   return (
     <React.Fragment>
       <div className="card">
@@ -1182,7 +1182,7 @@ function App(){
   /* ===== 快速瀏覽模式：以今日收盤價算位階 ===== */
   const lastOf=a=>{ if(!a) return null; for(let i=a.length-1;i>=0;i--) if(a[i]!=null) return a[i]; return null; };
   const posLabel=p=>p==null?"":p<20?"低檔":p<40?"偏低":p<60?"中檔":p<80?"偏高":"高檔";
-  const posColor=p=>p==null?"var(--dim)":p<40?"#0e7fb8":p<60?"#243040":"#ff9f43";
+  const posColor=p=>p==null?"var(--dim)":p<40?"#53c8f5":p<60?"#e6edf3":"#ff9f43";
   const svPos=useMemo(()=>{
     if(!model||!stock||stock.quote.close==null) return null;
     const hi=model.rows.map(r=>r.hi).filter(v=>v!=null);
@@ -1763,59 +1763,59 @@ function App(){
               {FY.hasDetail&&(
                 <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="" decimals={1} stacked
                   series={[
-                    {name:"真實盈餘（業主盈餘）",color:"#2563eb",bar:true,vlabel:"top",data:FY.oe},
-                    {name:"折舊現金流量（折舊−資本支出）",color:"#c2570d",bar:true,vlabel:"bottom",data:FY.depCF},
-                    {name:"每股營收",color:"#6b7480",data:FY.revPS},
+                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:"top",data:FY.oe},
+                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:"bottom",data:FY.depCF},
+                    {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
               {FY.hasBorrow&&(
                 <QChart title="公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog dots endLabels={false}
                   series={[
-                    {name:"短期借款",color:"#a97d0a",data:FY.stbB},
-                    {name:"長期借款",color:"#15803d",data:FY.ltbB},
+                    {name:"短期借款",color:"#ffd54a",data:FY.stbB},
+                    {name:"長期借款",color:"#4ade80",data:FY.ltbB},
                     {name:"借款總額",color:"#c2410c",data:FY.borrowB},
-                    {name:"稅後純益",color:"#0e7fb8",data:FY.niB},
+                    {name:"稅後純益",color:"#53c8f5",data:FY.niB},
                   ]}/>
               )}
               {FY.epsCagr?(
                 <QChart title={`EPS 年複合成長率（7〜1年・至${FY.cagrY0}年）`} labels={["7年","6年","5年","4年","3年","2年","1年"]} unit="%" decimals={0}
                   series={[
-                    {name:"EPS 年複合成長率",color:"#d95f0e",vlabel:"above",data:FY.epsCagr},
+                    {name:"EPS 年複合成長率",color:"#ff9142",vlabel:"above",data:FY.epsCagr},
                   ]}/>
               ):(
                 <div className="chartpanel"><div className="charthead">EPS 年複合成長率（7〜1年）</div>
-                <div style={{color:"#9a9280",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
+                <div style={{color:"#556",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
               )}
               {FY.hasNonop&&(
                 <QChart title="公司獲利來源？（年・億）" labels={FY.labels} unit="" decimals={0} stacked
                   series={[
-                    {name:"本業（營業利益）",color:"#0e7fb8",bar:true,data:FY.opB},
-                    {name:"業外收支",color:"#d95f0e",bar:true,data:FY.nonopB},
+                    {name:"本業（營業利益）",color:"#53c8f5",bar:true,data:FY.opB},
+                    {name:"業外收支",color:"#ff9142",bar:true,data:FY.nonopB},
                   ]}/>
               )}
               {hist&&model&&(
                 <RiverChart title="本益比河流圖" years={hist.years}
                 series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
                 nowValue={model.epsNow>0&&stock.quote.close!=null?stock.quote.close/model.epsNow:null} nowLabel="目前本益比（收盤價）" decimals={1}
-                guides={{zone:10,lines:[{v:12,color:"#2563eb"},{v:15,color:"#dc2626"}]}}/>
+                guides={{zone:10,lines:[{v:12,color:"#3b82f6"},{v:15,color:"#f87171"}]}}/>
               )}
               {FY&&(
                 <QChart title="ROE／ROA（年）" labels={FY.labels} unit="%" decimals={0}
                   series={[
-                    {name:"ROE",color:"#d95f0e",vlabel:"above",data:FY.roe},
-                    {name:"ROA",color:"#0e7fb8",vlabel:"below",data:FY.roa},
+                    {name:"ROE",color:"#ff9142",vlabel:"above",data:FY.roe},
+                    {name:"ROA",color:"#53c8f5",vlabel:"below",data:FY.roa},
                   ]}/>
               )}
               <QChart title="每股盈餘（年）" labels={FY.labels} unit="" decimals={1}
                 series={[
-                  {name:"年度 EPS",color:"#0e7fb8",bar:true,vlabel:true,data:FY.epsA},
+                  {name:"年度 EPS",color:"#53c8f5",bar:true,vlabel:true,data:FY.epsA},
                 ]}/>
               {divY&&(
                 <QChart title="公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={1}
                   series={[
-                    {name:"現金股利（元）",color:"#0e7fb8",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash??null)},
-                    {name:"股票股利（元）",color:"#a97d0a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#d95f0e",vlabel:"above",decimals:0,data:divY.slice(-10).map(d=>(payoutByRocY&&payoutByRocY[d.y]!=null)?payoutByRocY[d.y]:(d.cash===0?0:null))},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash??null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",decimals:0,data:divY.slice(-10).map(d=>(payoutByRocY&&payoutByRocY[d.y]!=null)?payoutByRocY[d.y]:(d.cash===0?0:null))},
                   ]}/>
               )}
               {FY.stack.some(s=>s)&&(
@@ -1825,15 +1825,15 @@ function App(){
                     {name:"長期投資",color:"#1e3a8a",data:FY.stack.map(s=>s?s.lti:0)},
                     {name:"存貨",color:"#65a30d",data:FY.stack.map(s=>s?s.inv:0)},
                     {name:"應收帳款",color:"#7f1d1d",data:FY.stack.map(s=>s?s.ar:0)},
-                    {name:"現金",color:"#2563eb",data:FY.stack.map(s=>s?s.cash:0)},
+                    {name:"現金",color:"#3b82f6",data:FY.stack.map(s=>s?s.cash:0)},
                     {name:"其他",color:"#374151",data:FY.stack.map(s=>s?s.other:0)},
                   ]}/>
               )}
               {false&&FY.hasNonop&&(
                 <QChart title="檢驗（五）業外投資比本業好嗎？（年）" labels={FY.labels} unit="%"
                   series={[
-                    {name:"業外投資報酬率",color:"#6b7480",data:FY.outsideRet},
-                    {name:"股東權益報酬率",color:"#0e7fb8",data:FY.roe},
+                    {name:"業外投資報酬率",color:"#8b98a9",data:FY.outsideRet},
+                    {name:"股東權益報酬率",color:"#53c8f5",data:FY.roe},
                   ]}/>
               )}
             
@@ -1898,35 +1898,35 @@ function App(){
             <div className="charts">
               <QChart title="三率（年）" labels={FY.labels} unit="%" decimals={0}
                 series={[
-                  {name:"毛利率",color:"#d95f0e",data:FY.gm},
-                  {name:"營利率",color:"#a97d0a",data:FY.om},
-                  {name:"純益率",color:"#0e7fb8",data:FY.nm},
+                  {name:"毛利率",color:"#ff9142",data:FY.gm},
+                  {name:"營利率",color:"#ffd54a",data:FY.om},
+                  {name:"純益率",color:"#53c8f5",data:FY.nm},
                 ]}/>
               {FY.hasDetail&&(
                 <QChart title="公司真的賺錢嗎？（每股・年）" labels={FY.labels} unit="" decimals={1} stacked
                   series={[
-                    {name:"真實盈餘（業主盈餘）",color:"#2563eb",bar:true,vlabel:"top",data:FY.oe},
-                    {name:"折舊現金流量（折舊−資本支出）",color:"#c2570d",bar:true,vlabel:"bottom",data:FY.depCF},
-                    {name:"每股營收",color:"#6b7480",data:FY.revPS},
+                    {name:"真實盈餘（業主盈餘）",color:"#3b82f6",bar:true,vlabel:"top",data:FY.oe},
+                    {name:"折舊現金流量（折舊−資本支出）",color:"#f97316",bar:true,vlabel:"bottom",data:FY.depCF},
+                    {name:"每股營收",color:"#8b98a9",data:FY.revPS},
                   ]}/>
               )}
               {FY.hasBorrow&&(
                 <QChart title="公司資金吃緊嗎？（億・對數尺度）" labels={FY.labels} unit="" decimals={0} ylog dots endLabels={false}
                   series={[
-                    {name:"短期借款",color:"#a97d0a",data:FY.stbB},
-                    {name:"長期借款",color:"#15803d",data:FY.ltbB},
+                    {name:"短期借款",color:"#ffd54a",data:FY.stbB},
+                    {name:"長期借款",color:"#4ade80",data:FY.ltbB},
                     {name:"借款總額",color:"#c2410c",data:FY.borrowB},
-                    {name:"稅後純益",color:"#0e7fb8",data:FY.niB},
+                    {name:"稅後純益",color:"#53c8f5",data:FY.niB},
                   ]}/>
               )}
               {FY.epsCagr?(
                 <QChart title={`EPS 年複合成長率（7〜1年・至${FY.cagrY0}年）`} labels={["7年","6年","5年","4年","3年","2年","1年"]} unit="%" decimals={0}
                   series={[
-                    {name:"EPS 年複合成長率",color:"#d95f0e",vlabel:"above",data:FY.epsCagr},
+                    {name:"EPS 年複合成長率",color:"#ff9142",vlabel:"above",data:FY.epsCagr},
                   ]}/>
               ):(
                 <div className="chartpanel"><div className="charthead">EPS 年複合成長率（7〜1年）</div>
-                <div style={{color:"#9a9280",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
+                <div style={{color:"#556",textAlign:"center",padding:"50px 0",fontSize:13}}>最新完整年度 EPS 為負或無年度資料<br/>無法計算複合成長率</div></div>
               )}
               {FY.stack.some(s=>s)&&(
                 <StackChart title="公司獲利轉換成何種資產？（億）" labels={FY.labels}
@@ -1935,47 +1935,47 @@ function App(){
                     {name:"長期投資",color:"#1e3a8a",data:FY.stack.map(s=>s?s.lti:0)},
                     {name:"存貨",color:"#65a30d",data:FY.stack.map(s=>s?s.inv:0)},
                     {name:"應收帳款",color:"#7f1d1d",data:FY.stack.map(s=>s?s.ar:0)},
-                    {name:"現金",color:"#2563eb",data:FY.stack.map(s=>s?s.cash:0)},
+                    {name:"現金",color:"#3b82f6",data:FY.stack.map(s=>s?s.cash:0)},
                     {name:"其他",color:"#374151",data:FY.stack.map(s=>s?s.other:0)},
                   ]}/>
               )}
               {FY.hasNonop&&(
                 <QChart title="公司獲利來源？（年・億）" labels={FY.labels} unit="" decimals={0} stacked
                   series={[
-                    {name:"本業（營業利益）",color:"#0e7fb8",bar:true,data:FY.opB},
-                    {name:"業外收支",color:"#d95f0e",bar:true,data:FY.nonopB},
+                    {name:"本業（營業利益）",color:"#53c8f5",bar:true,data:FY.opB},
+                    {name:"業外收支",color:"#ff9142",bar:true,data:FY.nonopB},
                   ]}/>
               )}
               <QChart title="ROE／ROA（年）" labels={FY.labels} unit="%" decimals={0}
                 series={[
-                  {name:"ROE",color:"#d95f0e",vlabel:"above",data:FY.roe},
-                  {name:"ROA",color:"#0e7fb8",vlabel:"below",data:FY.roa},
+                  {name:"ROE",color:"#ff9142",vlabel:"above",data:FY.roe},
+                  {name:"ROA",color:"#53c8f5",vlabel:"below",data:FY.roa},
                 ]}/>
               <QChart title="每股盈餘（年）" labels={FY.labels} unit="" decimals={1}
                 series={[
-                  {name:"年度 EPS",color:"#0e7fb8",bar:true,vlabel:true,data:FY.epsA},
+                  {name:"年度 EPS",color:"#53c8f5",bar:true,vlabel:true,data:FY.epsA},
                 ]}/>
               {divY&&(
                 <QChart title="公司獲利能與股東分享嗎？（年）" hover labels={divY.slice(-10).map(d=>`${d.y}年`)} unit="" decimals={1}
                   series={[
-                    {name:"現金股利（元）",color:"#0e7fb8",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash??null)},
-                    {name:"股票股利（元）",color:"#a97d0a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
-                    {name:"現金配息率（%・年）",color:"#d95f0e",vlabel:"above",decimals:0,data:divY.slice(-10).map(d=>(payoutByRocY&&payoutByRocY[d.y]!=null)?payoutByRocY[d.y]:(d.cash===0?0:null))},
+                    {name:"現金股利（元）",color:"#53c8f5",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.cash??null)},
+                    {name:"股票股利（元）",color:"#ffd54a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
+                    {name:"現金配息率（%・年）",color:"#ff9142",vlabel:"above",decimals:0,data:divY.slice(-10).map(d=>(payoutByRocY&&payoutByRocY[d.y]!=null)?payoutByRocY[d.y]:(d.cash===0?0:null))},
                   ]}/>
               )}
               {false&&( /* 暫時隱藏（2026-07-11 Dale 指示，保留備用） */
                 <QChart title="營收與現金流（年・億）" labels={FY.labels} unit="" decimals={0}
                 series={[
-                  {name:"營業收入",color:"#6b7480",data:FY.revB},
-                  {name:"營業現金流",color:"#15803d",data:FY.ocfB},
-                  {name:"稅後純益",color:"#0e7fb8",data:FY.niB},
+                  {name:"營業收入",color:"#8b98a9",data:FY.revB},
+                  {name:"營業現金流",color:"#4ade80",data:FY.ocfB},
+                  {name:"稅後純益",color:"#53c8f5",data:FY.niB},
                 ]}/>
               )}
               {false&&FY.hasNonop&&(
                 <QChart title="業外投資比本業好嗎？（年）" labels={FY.labels} unit="%"
                   series={[
-                    {name:"業外投資報酬率",color:"#6b7480",data:FY.outsideRet},
-                    {name:"股東權益報酬率",color:"#0e7fb8",data:FY.roe},
+                    {name:"業外投資報酬率",color:"#8b98a9",data:FY.outsideRet},
+                    {name:"股東權益報酬率",color:"#53c8f5",data:FY.roe},
                   ]}/>
               )}
             
@@ -1987,28 +1987,28 @@ function App(){
                 <div className="charts">
                   <QChart title="總成本與固定資產成本" labels={FY.labels} unit="%" decimals={0}
                     series={[
-                      {name:"營收／固定資產（%・年）",color:"#6b7480",data:FY.fixedTurn},
-                      {name:"毛利率（%）",color:"#0e7fb8",data:FY.gm},
+                      {name:"營收／固定資產（%・年）",color:"#8b98a9",data:FY.fixedTurn},
+                      {name:"毛利率（%）",color:"#53c8f5",data:FY.gm},
                     ]}/>
                   <QChart title="總現金成本（天）" labels={FY.labels} unit="" decimals={0}
                     series={[
-                      {name:"現金週期",color:"#0e7fb8",data:FY.ccc},
-                      {name:"防禦期",color:"#6b7480",data:FY.defensive},
+                      {name:"現金週期",color:"#53c8f5",data:FY.ccc},
+                      {name:"防禦期",color:"#8b98a9",data:FY.defensive},
                     ]}/>
                   <QChart title="原料及成品成本" labels={FY.labels} unit="" decimals={0}
                     series={[
-                      {name:"存貨佔流動資產（%）",color:"#6b7480",data:FY.invPct},
-                      {name:"存貨週轉天數",color:"#0e7fb8",data:FY.invD},
+                      {name:"存貨佔流動資產（%）",color:"#8b98a9",data:FY.invPct},
+                      {name:"存貨週轉天數",color:"#53c8f5",data:FY.invD},
                     ]}/>
                   <QChart title="資金成本：應收帳款" labels={FY.labels} unit="" decimals={0}
                     series={[
-                      {name:"應收佔流動資產（%）",color:"#6b7480",data:FY.arPct},
-                      {name:"應收帳款天數",color:"#0e7fb8",data:FY.arD},
+                      {name:"應收佔流動資產（%）",color:"#8b98a9",data:FY.arPct},
+                      {name:"應收帳款天數",color:"#53c8f5",data:FY.arD},
                     ]}/>
                   <QChart title="資金成本：應付帳款" labels={FY.labels} unit="" decimals={0}
                     series={[
-                      {name:"應付佔負債（%）",color:"#6b7480",data:FY.apPct},
-                      {name:"應付帳款天數",color:"#0e7fb8",data:FY.apD},
+                      {name:"應付佔負債（%）",color:"#8b98a9",data:FY.apPct},
+                      {name:"應付帳款天數",color:"#53c8f5",data:FY.apD},
                     ]}/>
                 </div>
               </React.Fragment>
@@ -2241,7 +2241,7 @@ function App(){
               series={{hi:model.rows.map(r=>r.hi??null),lo:model.rows.map(r=>r.lo??null),avg:model.rows.map(r=>r.avg??null)}}
               nowValue={jp} nowLabel="輸入股價" decimals={jp!=null&&jp>=500?0:1}/>
             <RiverChart title="本益比河流圖" years={hist.years}
-              guides={{zone:10,lines:[{v:12,color:"#2563eb"},{v:15,color:"#dc2626"}]}}
+              guides={{zone:10,lines:[{v:12,color:"#3b82f6"},{v:15,color:"#f87171"}]}}
               series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
               nowValue={judge&&judge.pe>0?judge.pe:null} nowLabel="目前本益比" decimals={1}/>
             <RiverChart title="股價淨值比河流圖" years={hist.years}
