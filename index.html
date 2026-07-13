@@ -1757,14 +1757,6 @@ function App(){
               return fmt(stock.quote.close/model.epsNow/growR,2);
             })()}</div></div>
           </div>
-          {hist&&model&&(
-            <div style={{marginTop:14}}>
-              <RiverChart title="本益比河流圖" years={hist.years}
-                series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
-                nowValue={model.epsNow>0&&stock.quote.close!=null?stock.quote.close/model.epsNow:null} nowLabel="目前本益比（收盤價）" decimals={1}
-                guides={{zone:10,zoneLabel:"10倍",lines:[{v:12,label:"12倍",color:"#2563eb"},{v:15,label:"15倍",color:"#dc2626"}]}}/>
-            </div>
-          )}
           {FY&&(
             <div className="charts" style={{marginTop:14}}>
               {FY.hasDetail&&(
@@ -1829,6 +1821,12 @@ function App(){
                     {name:"股票股利（元）",color:"#a97d0a",bar:true,vlabel:true,data:divY.slice(-10).map(d=>d.stock||null)},
                     {name:"現金配息率（%・年）",color:"#d95f0e",vlabel:"above",decimals:0,data:divY.slice(-10).map(d=>(payoutByRocY&&payoutByRocY[d.y]!=null)?payoutByRocY[d.y]:(d.cash===0?0:null))},
                   ]}/>
+              )}
+              {hist&&model&&(
+                <RiverChart title="本益比河流圖" years={hist.years}
+                series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
+                nowValue={model.epsNow>0&&stock.quote.close!=null?stock.quote.close/model.epsNow:null} nowLabel="目前本益比（收盤價）" decimals={1}
+                guides={{zone:10,zoneLabel:"10倍",lines:[{v:12,label:"12倍",color:"#2563eb"},{v:15,label:"15倍",color:"#dc2626"}]}}/>
               )}
               {false&&FY.hasNonop&&(
                 <QChart title="檢驗（五）業外投資比本業好嗎？（年）" labels={FY.labels} unit="%"
