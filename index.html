@@ -599,7 +599,7 @@ function StackChart({title,labels,series,unit="億"}){
 }
 
 /* ============ 河流圖 (SVG) ============ */
-function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",invert=false,hiLabel,loLabel,note}){
+function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",invert=false,hiLabel,loLabel,note,guides}){
   const W=460,H=260,PAD={l:14,r:44,t:26,b:26};
   const ptsAll=years.map((y,i)=>({y,hi:series.hi[i],lo:series.lo[i],avg:series.avg[i]}));
   const idxValid=ptsAll.map((p,i)=>p.hi!=null?i:-1).filter(i=>i>=0);
@@ -612,6 +612,10 @@ function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",inv
   const valid=pts.filter(p=>p.hi!=null);
   let vmax=Math.max(...valid.map(p=>p.hi)), vmin=Math.min(...valid.map(p=>p.lo));
   if(nowValue!=null){ vmax=Math.max(vmax,nowValue); vmin=Math.min(vmin,nowValue); }
+  if(guides){
+    const gv=[guides.zone,...(guides.lines||[]).map(l=>l.v)].filter(v=>v!=null);
+    if(gv.length){ vmax=Math.max(vmax,...gv); vmin=Math.min(vmin,...gv); }
+  }
   const span=(vmax-vmin)||1; vmax+=span*0.1; vmin-=span*0.1;
   const X=i=>PAD.l+ i*(W-PAD.l-PAD.r)/Math.max(pts.length-1,1);
   const Y=v=>{const t=(v-vmin)/(vmax-vmin);return PAD.t+(invert?t:1-t)*(H-PAD.t-PAD.b);};
@@ -639,6 +643,19 @@ function RiverChart({title,years,series,nowValue,nowLabel,decimals=1,unit="",inv
     <div className="chartpanel">
       <div className="charthead">{title}</div>
       <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",display:"block"}}>
+        {guides&&guides.zone!=null&&(
+          <g>
+            <rect x={PAD.l} y={Y(guides.zone)} width={W-PAD.l-PAD.r} height={Math.max(H-PAD.b-Y(guides.zone),0)} fill="rgba(21,128,61,0.13)"/>
+            <line x1={PAD.l} x2={W-PAD.r} y1={Y(guides.zone)} y2={Y(guides.zone)} stroke="#15803d" strokeWidth="1.2" opacity="0.7"/>
+            <text x={W-PAD.r+3} y={Y(guides.zone)+4} fill="#15803d" fontSize="11" fontWeight="700" className="mono">{guides.zoneLabel||guides.zone}</text>
+          </g>
+        )}
+        {guides&&(guides.lines||[]).map((g,gi)=>(
+          <g key={"gd"+gi}>
+            <line x1={PAD.l} x2={W-PAD.r} y1={Y(g.v)} y2={Y(g.v)} stroke={g.color||"#6b7480"} strokeWidth="1.4" strokeDasharray="7 5" opacity="0.85"/>
+            <text x={W-PAD.r+3} y={Y(g.v)+4} fill={g.color||"#6b7480"} fontSize="11" fontWeight="700" className="mono">{g.label||g.v}</text>
+          </g>
+        ))}
         <path d={bandPath} fill="rgba(14,127,184,0.10)"/>
         <path d={path("hi")} fill="none" stroke="var(--hi)" strokeWidth="2.2"/>
         <path d={path("avg")} fill="none" stroke="var(--avg)" strokeWidth="1.2" opacity="0.9"/>
@@ -1705,12 +1722,14 @@ function App(){
               {browseList&&browseList.length?`第 ${Math.max(browseList.findIndex(c=>c.code===stock.code)+1,1)} / ${browseList.length} 檔`:""}
             </span>
           </div>
+          {false&&( /* 四張價格卡暫時隱藏（2026-07-13 Dale 指示，保留備用） */
           <div className="svband">
             <div className="svb"><div className="k">高價上限</div><div className="v mono hiv">{model&&model.priceBand?fmt(model.priceBand.hiUp):"—"}</div></div>
             <div className="svb"><div className="k">關注價</div><div className="v mono avgv">{model&&model.priceBand?fmt(model.priceBand.watch):"—"}</div></div>
             <div className="svb"><div className="k">低價低限</div><div className="v mono lov">{model&&model.priceBand?fmt(model.priceBand.loDn):"—"}</div></div>
             <div className="svb"><div className="k">目前位階（近{YEARS_BACK}年）</div><div className="v mono" style={{color:posColor(svPos!=null?svPos*100:null)}}>{svPos!=null?fmt(svPos*100,0)+"%（"+posLabel(svPos*100)+"）":(loading?"載入中…":"—")}</div></div>
           </div>
+          )}
           <div className="infogrid">
             <div className="infoitem"><div className="k">每股盈餘（近四季）</div><div className="v mono">{model&&model.epsNow!=null?fmt(model.epsNow,1)+" 元":"—"}</div></div>
             <div className="infoitem"><div className="k">每股淨值</div><div className="v mono">{model&&model.bvpsNow!=null?fmt(model.bvpsNow,1)+" 元":"—"}</div></div>
@@ -1738,6 +1757,14 @@ function App(){
               return fmt(stock.quote.close/model.epsNow/growR,2);
             })()}</div></div>
           </div>
+          {hist&&model&&(
+            <div style={{marginTop:14}}>
+              <RiverChart title="本益比河流圖" years={hist.years}
+                series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
+                nowValue={model.epsNow>0&&stock.quote.close!=null?stock.quote.close/model.epsNow:null} nowLabel="目前本益比（收盤價）" decimals={1}
+                guides={{zone:10,zoneLabel:"10倍",lines:[{v:12,label:"12倍",color:"#2563eb"},{v:15,label:"15倍",color:"#dc2626"}]}}/>
+            </div>
+          )}
           {FY&&(
             <div className="charts" style={{marginTop:14}}>
               {FY.hasDetail&&(
@@ -2215,6 +2242,7 @@ function App(){
               series={{hi:model.rows.map(r=>r.hi??null),lo:model.rows.map(r=>r.lo??null),avg:model.rows.map(r=>r.avg??null)}}
               nowValue={jp} nowLabel="輸入股價" decimals={jp!=null&&jp>=500?0:1}/>
             <RiverChart title="本益比河流圖" years={hist.years}
+              guides={{zone:10,zoneLabel:"10倍",lines:[{v:12,label:"12倍",color:"#2563eb"},{v:15,label:"15倍",color:"#dc2626"}]}}
               series={{hi:model.rows.map(r=>r.peHi??null),lo:model.rows.map(r=>r.peLo??null),avg:model.rows.map(r=>r.peAvg??null)}}
               nowValue={judge&&judge.pe>0?judge.pe:null} nowLabel="目前本益比" decimals={1}/>
             <RiverChart title="股價淨值比河流圖" years={hist.years}
