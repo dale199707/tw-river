@@ -1757,6 +1757,13 @@ function App(){
               if(!(growR>0)) return "—（成長率為負）";
               return fmt(stock.quote.close/model.epsNow/growR,2);
             })()}</div></div>
+            <div className="infoitem"><div className="k">近4季EPS成長率</div><div className="v mono">{(()=>{
+              if(!model||model.epsNow==null||!FY) return "—";
+              let epsY=null;
+              for(let i=FY.labels.length-1;i>=0;i--){ if(FY.labels[i]!=="近4季"){ epsY=FY.epsA[i]; break; } }
+              if(!(epsY>0)) return "—（去年虧損）";
+              return fmt((model.epsNow/epsY-1)*100,0)+"%";
+            })()}</div></div>
           </div>
           {FY&&(
             <div className="charts" style={{marginTop:14}}>
