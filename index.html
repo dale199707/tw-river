@@ -181,7 +181,7 @@ async function loadSnapshots(){
       chair:r["董事長"]||"—",
       capital:num(r["實收資本額"]),
       est:r["成立日期"], ipo:r["上市日期"],
-      biz:(String(r["主要經營業務"]||"").trim().slice(0,120))||null,
+      biz:(String(r["主要經營業務"]||r["所營事業主要內容"]||r["營業項目"]||"").trim().slice(0,120))||null,
       market:"twse",
     })).concat(((osnap&&osnap.companies)||[]).map(r=>({
       code:r.c, name:r.n||r.f, full:r.f,
@@ -1890,6 +1890,7 @@ function App(){
               if(!(growR>0)) return "—（成長率為負）";
               return fmt(stock.quote.close/model.epsNow/growR,2);
             })()}</div></div>
+            <div className="infoitem" style={{gridColumn:"1 / -1"}}><div className="k">主要業務</div><div className="v" style={{fontSize:13,fontWeight:400,lineHeight:1.55}}>{stock.biz||"—"}</div></div>
             <div className="infoitem"><div className="k">股價淨值比</div><div className="v mono">{fmt(stock.quote.pb,2)}</div></div>
             <div className="infoitem"><div className="k">殖利率</div><div className="v mono">{stock.quote.yield!=null?fmt(stock.quote.yield,2)+"%":"—"}</div></div>
           </div>
