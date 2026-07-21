@@ -521,6 +521,7 @@ def tpex_fetch_companies(fetcher):
             "cap": num(r.get("Paidin.Capital.NTDollars")),
             "est": str(r.get("DateOfIncorporation") or "").strip(),
             "ipo": str(r.get("DateOfListing") or "").strip(),
+            "b": str(r.get("MainBusiness") or r.get("MainBusinessItems") or r.get("主要經營業務") or "").strip()[:120],
         })
     return out
 

@@ -181,6 +181,7 @@ async function loadSnapshots(){
       chair:r["董事長"]||"—",
       capital:num(r["實收資本額"]),
       est:r["成立日期"], ipo:r["上市日期"],
+      biz:(String(r["主要經營業務"]||"").trim().slice(0,120))||null,
       market:"twse",
     })).concat(((osnap&&osnap.companies)||[]).map(r=>({
       code:r.c, name:r.n||r.f, full:r.f,
@@ -188,6 +189,7 @@ async function loadSnapshots(){
       chair:r.ch||"—",
       capital:r.cap,
       est:r.est, ipo:r.ipo,
+      biz:(String(r.b||"").trim())||null,
       market:"tpex",
     })));
     const quotes = {};
@@ -888,6 +890,7 @@ function App(){
     const rows=hist.data.map((d,i)=>d?{...d}:{year:hist.years[i]});
     let finUsed=false;
     let revPSTTM=null;
+    let growRNow=null;
     if(finRows&&finRows.length){
       const annual={};
       finRows.forEach(r=>{ if(r.s===4) annual[r.y]={eps:r.eps,bvps:r.bvps,rev:r.rev}; });
@@ -897,6 +900,9 @@ function App(){
       const sharesM=stock.capital?stock.capital/10:null;
       const revTTM=trailing4(finRows,li,"rev_q");
       revPSTTM=(revTTM!=null&&sharesM)?revTTM*1000/sharesM:null;
+      const fyrs=Object.keys(annual).map(Number).sort((a,b)=>a-b);
+      const lastFullE=fyrs.length?annual[fyrs[fyrs.length-1]].eps:null;
+      growRNow=(epsTTM!=null&&lastFullE>0)?(epsTTM/lastFullE-1)*100:null;
       const lastY=rows[rows.length-1].year;
       rows.forEach(r=>{
         if(!r||r.hi==null) return;
@@ -918,6 +924,14 @@ function App(){
         if(revA!=null&&revA>0){
           r.revPS=revA; r.psHi=r.hi/revA; r.psLo=r.lo/revA; r.psAvg=r.avg/revA;
         }
+        /* 本益成長比（PGR）：該年 PE ÷ 該年年度EPS成長率%（成長率須為正；最新年用近4季成長率） */
+        let gpc=null;
+        if(r.year===lastY){ gpc=growRNow; }
+        else{
+          const e1=annual[r.year-1]&&annual[r.year-1].eps;
+          if(a.eps>0&&e1>0){ const g=(a.eps/e1-1)*100; if(g>0) gpc=g; }
+        }
+        if(gpc>0&&r.peHi!=null){ r.pgHi=r.peHi/gpc; r.pgLo=r.peLo/gpc; r.pgAvg=r.peAvg/gpc; }
       });
     }
     const q=stock.quote;
@@ -945,7 +959,7 @@ function App(){
     const p7=past.slice(-7);
     const payout7=p7.length?p7.reduce((s,r)=>s+r.dps/r.eps,0)/p7.length:null;
     const dpsLast=past.length?past[past.length-1].dps:null;
-    return {rows,epsNow,bvpsNow,dpsNow,revPSNow:revPSTTM??null,priceBand,peBand,pbBand,yBand,payoutLast,payout7,dpsLast,finUsed};
+    return {rows,epsNow,bvpsNow,dpsNow,revPSNow:revPSTTM??null,growRNow,priceBand,peBand,pbBand,yBand,payoutLast,payout7,dpsLast,finUsed};
   },[hist,stock,finRows]);
 
   const finView=useMemo(()=>{
@@ -1764,6 +1778,7 @@ function App(){
               if(!(epsY>0)) return "—（去年虧損）";
               return fmt((model.epsNow/epsY-1)*100,0)+"%";
             })()}</div></div>
+            <div className="infoitem" style={{gridColumn:"1 / -1"}}><div className="k">主要業務</div><div className="v" style={{fontSize:13,fontWeight:400,lineHeight:1.55}}>{stock.biz||"—"}</div></div>
           </div>
           {FY&&(
             <div className="charts" style={{marginTop:14}}>
@@ -2264,6 +2279,11 @@ function App(){
             <RiverChart title="股價營收比河流圖" years={hist.years}
               series={{hi:model.rows.map(r=>r.psHi??null),lo:model.rows.map(r=>r.psLo??null),avg:model.rows.map(r=>r.psAvg??null)}}
               nowValue={jp!=null&&model.revPSNow>0?jp/model.revPSNow:null} nowLabel="目前營收比" decimals={2}/>
+            <RiverChart title="本益成長比河流圖" years={hist.years}
+              series={{hi:model.rows.map(r=>r.pgHi??null),lo:model.rows.map(r=>r.pgLo??null),avg:model.rows.map(r=>r.pgAvg??null)}}
+              nowValue={(model.growRNow>0&&model.epsNow>0&&jp!=null)?(jp/model.epsNow)/model.growRNow:null} nowLabel="目前本益成長比" decimals={2}
+              guides={{lines:[{v:0.75,color:"#4ade80"}]}}
+              note="各年＝該年本益比÷該年年度EPS成長率（成長率為正才計，EPS 衰退或虧損年份留白）；最新年用近4季EPS成長率。綠虛線＝0.75。"/>
           </div>
           <div className="note" style={{marginTop:12}}>
             資料來源：臺灣證券交易所（openapi.twse.com.tw、www.twse.com.tw）、證券櫃檯買賣中心（www.tpex.org.tw）。歷年 EPS／淨值／股息係以各年 12 月（當年度取最近月份）之月均本益比、淨值比、殖利率與月均價回推，與財報實際數字可能有小幅差異。本工具僅供個人研究參考，非投資建議。
