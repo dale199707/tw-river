@@ -169,11 +169,12 @@ async function loadSnapshots(){
     /* 上櫃：TPEX 擋 Cloudflare 出口且端點無 CORS，Worker 代理與瀏覽器直連皆不可行；
        改讀 Actions 每日產生的同源靜態檔 data/tpex_snap.json（--tpex-snap）。
        抓取失敗時退化為僅上市，快照鍵換代後重抓。上櫃收盤＝每日 Actions 跑完後的資料日（非即時）。 */
-    const [info,bwi,avg,osnap] = await Promise.all([
+    const [info,bwi,avg,osnap,bizj] = await Promise.all([
       fetchJSON(`${PROXY}/openapi/v1/opendata/t187ap03_L`),
       fetchJSON(`${PROXY}/openapi/v1/exchangeReport/BWIBBU_ALL`),
       fetchJSON(`${PROXY}/openapi/v1/exchangeReport/STOCK_DAY_AVG_ALL`),
       fetchJSON(`data/tpex_snap.json`).catch(()=>null),
+      fetchJSON(`data/biz.json`).catch(()=>null),
     ]);
     const companies = info.map(r=>({
       code:r["公司代號"], name:r["公司簡稱"]||r["公司名稱"], full:r["公司名稱"],
@@ -192,6 +193,7 @@ async function loadSnapshots(){
       biz:(String(r.b||"").trim())||null,
       market:"tpex",
     })));
+    if(bizj&&bizj.b){ companies.forEach(c=>{ if(!c.biz) c.biz=bizj.b[c.code]||null; }); }
     const quotes = {};
     bwi.forEach(r=>{ quotes[r.Code]={pe:num(r.PEratio),pb:num(r.PBratio),yield:num(r.DividendYield)}; });
     avg.forEach(r=>{ const q=quotes[r.Code]||(quotes[r.Code]={}); q.close=num(r.ClosingPrice); q.mavg=num(r.MonthlyAveragePrice); });
@@ -1129,6 +1131,12 @@ function App(){
 
   const FY=(finView&&finView.Y)||null;
 
+  /* 主要經營業務對照表（pipeline --biz-backfill 產出的 data/biz.json；不存在時靜默略過） */
+  const [bizMap,setBizMap]=useState(null);
+  useEffect(()=>{
+    fetch("data/biz.json").then(r=>r.ok?r.json():null).then(j=>{ if(j&&j.b) setBizMap(j.b); }).catch(()=>{});
+  },[]);
+
   const divRows=useMemo(()=>{
     if(!fin||!fin.div||!fin.div.length) return null;
     const rows=fin.div.map(d=>{
@@ -1778,7 +1786,7 @@ function App(){
               if(!(epsY>0)) return "—（去年虧損）";
               return fmt((model.epsNow/epsY-1)*100,0)+"%";
             })()}</div></div>
-            <div className="infoitem" style={{gridColumn:"1 / -1"}}><div className="k">主要業務</div><div className="v" style={{fontSize:13,fontWeight:400,lineHeight:1.55}}>{stock.biz||"—"}</div></div>
+            <div className="infoitem" style={{gridColumn:"1 / -1"}}><div className="k">主要業務</div><div className="v" style={{fontSize:13,fontWeight:400,lineHeight:1.55}}>{(bizMap&&bizMap[stock.code])||stock.biz||"—"}</div></div>
           </div>
           {FY&&(
             <div className="charts" style={{marginTop:14}}>
@@ -1890,7 +1898,7 @@ function App(){
               if(!(growR>0)) return "—（成長率為負）";
               return fmt(stock.quote.close/model.epsNow/growR,2);
             })()}</div></div>
-            <div className="infoitem" style={{gridColumn:"1 / -1"}}><div className="k">主要業務</div><div className="v" style={{fontSize:13,fontWeight:400,lineHeight:1.55}}>{stock.biz||"—"}</div></div>
+            <div className="infoitem" style={{gridColumn:"1 / -1"}}><div className="k">主要業務</div><div className="v" style={{fontSize:13,fontWeight:400,lineHeight:1.55}}>{(bizMap&&bizMap[stock.code])||stock.biz||"—"}</div></div>
             <div className="infoitem"><div className="k">股價淨值比</div><div className="v mono">{fmt(stock.quote.pb,2)}</div></div>
             <div className="infoitem"><div className="k">殖利率</div><div className="v mono">{stock.quote.yield!=null?fmt(stock.quote.yield,2)+"%":"—"}</div></div>
           </div>

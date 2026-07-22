@@ -162,6 +162,74 @@ def run_dividends(y1, y2):
     print(f"[div] 已寫入 {n} 檔股利紀錄")
 
 
+BIZ_PATH = DATA_DIR / "biz.json"
+
+def _strip_html(t):
+    t = re.sub(r"<[^>]+>", " ", t)
+    t = t.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def fetch_biz(code):
+    """公司基本資料（t05st03）抓「主要經營業務」。回傳 (text|None, 診斷字串)。
+    多版型解析：①th/td 相鄰 ②label 與值同列不同格。MOPS 宣告編碼不可信，用 apparent_encoding。"""
+    r = SESSION.post(f"{BASE}/mops/web/ajax_t05st03", data={
+        "encodeURIComponent": "1", "step": "1", "firstin": "1", "off": "1",
+        "queryName": "co_id", "inpuType": "co_id", "TYPEK": "all", "co_id": code,
+    }, headers={"Referer": f"{BASE}/mops/web/t05st03"}, timeout=30)
+    r.encoding = r.apparent_encoding or "big5"
+    html = r.text
+    m = re.search(r"主要經營業務(.*?)</tr>", html, re.S)
+    if m:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S)
+        for c in cells:
+            t = _strip_html(c)
+            if t:
+                return t[:200], f"OK len={len(t)}"
+    i = html.find("主要經營業務")
+    diag = html[max(0, i - 100):i + 400] if i >= 0 else html[:400]
+    return None, "找不到值。上下文：" + _strip_html(diag)[:400]
+
+
+def run_biz_backfill(delay, limit):
+    """全市場主要經營業務回補 -> data/biz.json（{"updated","b":{code:text}}）。
+    代號來源＝data/price/ 檔名（真上市櫃全集）；已在 biz.json 者跳過（斷點）；每 20 檔原子落檔。"""
+    price_dir = DATA_DIR / "price"
+    codes = sorted(p.stem for p in price_dir.glob("*.json"))
+    biz = {"updated": str(date.today()), "b": {}}
+    if BIZ_PATH.exists():
+        try:
+            biz = json.loads(BIZ_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    todo = [c for c in codes if c not in biz.get("b", {})]
+    if limit:
+        todo = todo[:limit]
+    print(f"全集 {len(codes)} 檔，已完成 {len(biz.get('b', {}))}，本次目標 {len(todo)}", flush=True)
+    done = 0
+    fails = []
+    for c in todo:
+        text, diag = fetch_biz(c)
+        if text:
+            biz["b"][c] = text
+        else:
+            fails.append(c)
+            print(f"  {c} 失敗：{diag[:120]}", flush=True)
+        done += 1
+        if done % 20 == 0:
+            biz["updated"] = str(date.today())
+            tmp = BIZ_PATH.with_suffix(".tmp")
+            tmp.write_text(json.dumps(biz, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+            tmp.replace(BIZ_PATH)
+            print(f"  進度 {done}/{len(todo)}（累計 {len(biz['b'])}）", flush=True)
+        polite_sleep(delay)
+    biz["updated"] = str(date.today())
+    tmp = BIZ_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(biz, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    tmp.replace(BIZ_PATH)
+    print(f"完成。累計 {len(biz['b'])} 檔；本次失敗 {len(fails)}：{fails[:20]}", flush=True)
+
+
 def load_stock(code):
     p = FIN_DIR / f"{code}.json"
     if p.exists():
@@ -368,7 +436,21 @@ def main():
     ap.add_argument("--typek", default="sii", choices=["sii", "otc"], help="probe-div 市場別（sii=上市 otc=上櫃）")
     ap.add_argument("--dividends-backfill", nargs=2, type=int, metavar=("Y1", "Y2"))
     ap.add_argument("--build-screen", action="store_true")
+    ap.add_argument("--probe-biz", type=str, metavar="CODE")
+    ap.add_argument("--biz-backfill", action="store_true")
+    ap.add_argument("--delay", type=float, default=2.0)
+    ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
+
+    if args.probe_biz:
+        text, diag = fetch_biz(args.probe_biz)
+        print("主要經營業務：", text if text else "（解析失敗）")
+        print("診斷：", diag)
+        return
+
+    if args.biz_backfill:
+        run_biz_backfill(args.delay, args.limit)
+        return
 
     if args.probe_div:
         data, raw = fetch_dividends_year(int(args.probe_div), args.typek)
