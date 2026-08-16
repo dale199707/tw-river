@@ -7,7 +7,7 @@
 > **v16 重點**：前端全面「年化呈現」改版（圖表以完整年度＋近4季點呈現，QChart 大幅擴充）、
 > 盤後選股批次保留與非上市櫃過濾、PSR 河流圖、pipeline 股票分割基準修正（_split_adjust）。
 > **2026-07-12 白畫面事故教訓已寫入前端鐵律**：改 model/finView 等核心計算必須做執行期煙霧測試，
-> Babel 編譯通過不代表不會執行期崩潰。
+> esbuild 編譯通過不代表不會執行期崩潰。
 
 ## 專案定位
 
@@ -22,7 +22,7 @@
 1. **`~/Desktop/tw-river-repo/XBRL/` 放著 33+ 季的原始檔（數 GB），絕對不能 commit**。`.gitignore` 已含 `XBRL/`；任何 git 操作仍只 add 指定檔案、不用 `git add -A`。
 2. **TPEX 封鎖 Cloudflare Workers 出口 IP**（302 無限重導向至 /errors，openapi 與 www 端點一體封鎖），且全部端點**無 CORS**。任何上櫃「即時」需求都只能走 Actions 產生靜態檔，不要再嘗試 Worker 代理或瀏覽器直連。
 3. `data/fin/*.json` 以 **XBRL 為主要來源**（33 季全數入庫，上市＋上櫃＋夾帶興櫃/公發）；爬蟲舊值僅在 XBRL 無值欄位保留。`div` 陣列仍為股利爬蟲來源（已回補 105 年起全市場），XBRL 不含股利。
-4. **前端改動必做三驗證**：Babel 7.26.4 實際編譯＋括號平衡＋（改到 model/finView/loadHistory 時）執行期煙霧測試。詳見「前端修改 SOP」。
+4. **前端改動必做三驗證**：`npm run build` 預編譯＋`npm run check` 產物一致性＋（改到 model/finView/loadHistory 時）執行期煙霧測試。詳見「前端修改 SOP」。
 
 ---
 
@@ -66,7 +66,7 @@
 - `.github/workflows/tpexsnap.yml`：平日 16:40 台北跑 `--tpex-snap --delay 2`，commit `data/tpex_snap.json`（公司清單＋當日 pe/pb/yield/close）＋`data/tpex_ytd.json`（當年逐月累計）
 - `--tpex-snap` 特性：斷點＝ytd last 日期；假日/未發佈不推進、隔日續補；blocked 中止但已累計先落檔；重跑冪等；公司清單失敗沿用舊清單
 - **上櫃收盤時效＝每日 16:4x，非即時**；上市維持 Worker /today（約 15:00–15:30 反映當日收盤）
-- 前端：公司清單 TWSE openapi＋tpex_snap concat（`market:"twse"|"tpex"`）；`loadHistory` 歷史年走 data/price、當年上市走 /bundle、上櫃讀 tpex_ytd；快照 localStorage 鍵 `twri-snap2-`
+- 前端：公司清單 TWSE openapi＋tpex_snap concat（`market:"twse"|"tpex"`）；`loadHistory` 歷史年走 data/price、當年上市走 /bundle、上櫃讀 tpex_ytd；快照 localStorage 鍵 `twri-snap3-`
 - Worker 內**禁止**任何 TPEX 抓取
 
 ### 股利（fetch_mops.py）
@@ -80,7 +80,7 @@
 ## 架構總覽
 
 ```
-index.html（單檔 React 18 UMD + Babel 7.26.4 classic，繁中 UI，GitHub Pages）
+index.html（靜態外殼，繁中 UI，GitHub Pages）＋ src/app.jsx（React 18 原始碼）→ esbuild → app.js（含 React 的單檔正式 bundle）
 ├─ 快照 → 上市：Worker /openapi/*（前一交易日）；上櫃：data/tpex_snap.json（每日）
 ├─ 當日收盤 → 上市：Worker /today（即時）；上櫃：tpex_snap 的 close（16:4x）
 ├─ 歷年價格 → data/price/{code}.json；當年：上市 /bundle、上櫃 data/tpex_ytd.json
@@ -116,7 +116,7 @@ worker.js（備份；不含任何 TPEX）
 - 支援多次斷裂鏈式換算；虧損連續季（eps 皆負）與微小 eps 不會誤判（已有單元測試驗證）
 - **注意**：此修正只在 screen.json 生效。前端 finQuarters 未套用同邏輯——分割股在「每股盈餘」「EPS 年複合成長率」等圖仍會有基準斷裂鋸齒（已知未修，Dale 未要求）
 
-## 前端（index.html）重點【v16 大改版，本章為現狀定版】
+## 前端（src/app.jsx；index.html 為外殼）重點【v16 大改版，本章為現狀定版】
 
 ### 分頁順序（2026-07-12 定版）
 基本資訊 → 財務指標 → 價格位階 → 河流圖 → 詳細數據 → 消息
@@ -172,7 +172,7 @@ props：`title, labels, series, unit, decimals, hover, stacked, ylog, dots, endL
 - 全市場篩選面板維持 300 截斷；個股內容閘門 `{stock&&!scrOpen&&!pickOpen&&…}`；screen.json 載入 effect **依賴陣列必須含 pickOpen**（曾漏加致永遠載入中）
 
 ### 快取三層與自癒
-1. localStorage 快照 `twri-snap2-*`（snapKey：台北 <14=a、14–18=h{hh} 每小時、≥18=b）
+1. localStorage 快照 `twri-snap3-*`（snapKey：台北 <14=a、14–18=h{hh} 每小時、≥18=b；v3 加入上櫃股價資料日）
 2. localStorage 年資料 `twri-y-{code}-{y}`（歷史年永久、當年當日）。**殘缺快取自癒（v16）**：歷史年若 eps/bvps/dps 全 null（/bundle 限流時代殘留），loadHistory 視為無效、改讀靜態檔重算覆寫
 3. Worker/瀏覽器 HTTP 快取
 
@@ -376,24 +376,16 @@ XBRL/ 各季資料夾累積數 GB。資料已入庫 data/fin 後，舊季資料�
 | CAGR 圖顯示說明框 | — | 正常：最新完整年度 EPS≤0 無法計算 |
 | 股利圖某年配息率留白 | 該年民國 <107 或 EPS≤0 | 正常（0 與算不出來不混） |
 | 盤後選股某檔數字可疑 | 開 data/fin/{code}.json 看 eps YTD 是否有基準跳動 | 疑似分割→確認 _split_adjust 是否涵蓋（隱含股數比值），帶數據開新對話 |
-| 整頁白畫面 | DevTools Console 看紅字 | **第一動作 git revert index.html**，再查原因；常見＝執行期 ReferenceError（見鐵律 4） |
+| 整頁白畫面 | DevTools Console 看紅字 | **第一動作還原 `src/app.jsx` 與同步的 `app.js`**，再查原因；常見＝執行期 ReferenceError（見鐵律 4） |
 
 **Worker 偵錯**：curl 端點看 JSON `{error,message,stack}`。改 Worker＝改 repo worker.js → 貼 Cloudflare Deploy → curl 驗證 → commit 備份。**Worker 內禁止 TPEX**。
 
 ### D. 前端修改 SOP（⚠️ 鐵律，弱模型逐字執行）
 
-1. **抓 repo 最新 index.html** 為基底（不可用舊對話殘留版本）
+1. **抓 repo 最新 `src/app.jsx`、`index.html`、`app.js` 為基底**（不可用舊對話殘留版本）
 2. 改動（str_replace 精準替換；大範圍重排用括號配對抽取區塊再重組，改完立即抽驗順序）
-3. **Babel 7.26.4 實際編譯＋括號平衡**。驗證腳本（node，@babel/standalone 需 npm install @babel/standalone@7.26.4）：
-```
-const fs=require("fs");const Babel=require("@babel/standalone");
-const html=fs.readFileSync("index.html","utf8");
-const m=html.match(/<script type="text\/babel"[^>]*>([\s\S]*?)<\/script>/);
-Babel.transform(m[1],{presets:[["react",{runtime:"classic"}]]});
-let b=0,p=0,k=0;for(const ch of m[1]){if(ch==="{")b++;if(ch==="}")b--;if(ch==="(")p++;if(ch===")")p--;if(ch==="[")k++;if(ch==="]")k--;}
-console.log("OK 括號",b,p,k);
-```
-4. **執行期煙霧測試（2026-07-12 白畫面事故後新增，改到 model／finView／loadHistory／finQuarters 必做）**：以 regex 抽出該 useMemo 主體，補上常數（BAND_YEARS/YEARS_BACK/CUM_FIELDS）與 finQuarters/trailing4，用真實 fin JSON（curl raw.githubusercontent 抓 data/fin/2330.json）跑「有財報／無財報（finRows=null）」兩種情境，任何 throw 都不得交付。Babel 編譯抓不到作用域／未定義變數這類執行期錯誤
+3. **預編譯與產物一致性**：首次執行 `npm ci`；每次修改後執行 `npm run build`，再執行 `npm run check`。`app.js` 必須和 `src/app.jsx` 同一 commit；正式頁不得出現 `text/babel`、`@babel/standalone` 或外部 React CDN。
+4. **執行期煙霧測試（2026-07-12 白畫面事故後新增，改到 model／finView／loadHistory／finQuarters 必做）**：以 regex 抽出該 useMemo 主體，補上常數（BAND_YEARS/YEARS_BACK/CUM_FIELDS）與 finQuarters/trailing4，用真實 fin JSON（curl raw.githubusercontent 抓 data/fin/2330.json）跑「有財報／無財報（finRows=null）」兩種情境，任何 throw 都不得交付。預編譯抓不到作用域／未定義變數這類執行期錯誤
 5. 交付檔案給 Dale（放 repo 根目錄），git 指令單一 code block 無行內註解
 6. **改壞的第一動作是 revert 不是硬修**
 
@@ -424,7 +416,7 @@ console.log("OK 括號",b,p,k);
 
 ## Dale 的專案慣例（務必遵守）
 
-- 單檔 HTML、CDN-only、**Babel 釘 @7.26.4 + classic runtime**、繁中 UI、無建置步驟
+- 靜態 GitHub Pages、繁中 UI；React 18 由 esbuild 打進 `app.js`，原始碼在 `src/app.jsx`；修改前端必須 `npm run build` 並提交同步產物
 - JSON 單行 compact；git 單一 code block 無 # 註解；只 add 指定檔案
 - 循序處理、不開平行 agent；不做沒被要求的功能
 - 爬蟲新端點先 --probe 請 Dale 貼輸出再繼續（開發環境無法直連 TWSE/MOPS/TPEX）

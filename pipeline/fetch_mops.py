@@ -422,11 +422,16 @@ def build_screen():
                      "epsY": round(eps_y, 2) if eps_y is not None else None,
                      "peLo": round(pes[0], 2) if pes else None,
                      "peLo2": round(pes[1], 2) if len(pes) > 1 else None})
-    out = {"updated": date.today().isoformat(), "rows": rows}
+    updated = date.today().isoformat()
+    out = {"updated": updated, "rows": rows}
     (DATA_DIR / "screen.json").write_text(
         json.dumps(out, separators=(",", ":"), ensure_ascii=False), encoding="utf8")
+    latest_quarter = max((r["q"] for r in rows), default=None)
+    status = {"updated": updated, "latestQuarter": latest_quarter}
+    (DATA_DIR / "status.json").write_text(
+        json.dumps(status, separators=(",", ":"), ensure_ascii=False), encoding="utf8")
     print(f"[screen] {len(rows)} 檔（償債年數可算 {sum(1 for r in rows if r['debt'] is not None)}、"
-          f"折舊年數可算 {sum(1 for r in rows if r['dep'] is not None)}）-> data/screen.json")
+          f"折舊年數可算 {sum(1 for r in rows if r['dep'] is not None)}）-> data/screen.json + data/status.json")
 
 
 def main():
