@@ -2,14 +2,16 @@
   "name": "tw-river",
   "private": true,
   "scripts": {
-    "build": "esbuild src/app.jsx --bundle --minify --outfile=app.js --target=es2020",
-    "check": "node scripts/check-frontend.mjs"
+    "build": "node scripts/build-frontend.mjs",
+    "check": "node scripts/check-frontend.mjs",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
     "esbuild": "0.25.9"
   }
 }

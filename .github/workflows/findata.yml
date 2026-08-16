@@ -29,6 +29,9 @@ jobs:
       - name: Update dividends and rebuild screen
         run: python3 pipeline/fetch_mops.py --update
 
+      - name: Validate financial data
+        run: python3 pipeline/validate_data.py
+
       - name: Commit data
         run: |
           git config user.name "findata-bot"

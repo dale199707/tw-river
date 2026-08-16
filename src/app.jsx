@@ -730,6 +730,8 @@ function App(){
   const [fDebt,setFDebt]=useState("");
   const [scrSort,setScrSort]=useState({k:"c",d:1});
   const abortRef=useRef(0);
+  const scrTableTopRef=useRef(null);
+  const pickTableTopRef=useRef(null);
 
   useEffect(()=>{ loadSnapshots().then(setSnap).catch(e=>setSnapErr(String(e))); },[]);
   useEffect(()=>{
@@ -1472,7 +1474,7 @@ function App(){
             <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>載入中…</div>
           ):(
             <React.Fragment>
-              <div className="note" style={{marginTop:0}}>符合 {scrRows.length} 檔{scrRows.length>300?"（僅顯示前 300 檔，請加強篩選條件）":""}。點欄位名稱可升冪／降冪排序，點列開啟該檔股票。折舊／償債年數需個別公司財報，detail 回補完成前部分股票為 —（篩選時自動排除）。股價：{(snap&&snap.priceDate)||"最近交易日"}・財報彙總：{scrData.updated}</div>
+              <div ref={scrTableTopRef} className="note" style={{marginTop:0}}>符合 {scrRows.length} 檔{scrRows.length>300?"（僅顯示前 300 檔，請加強篩選條件）":""}。點欄位名稱可升冪／降冪排序，點列開啟該檔股票。折舊／償債年數需個別公司財報，detail 回補完成前部分股票為 —（篩選時自動排除）。股價：{(snap&&snap.priceDate)||"最近交易日"}・財報彙總：{scrData.updated}</div>
               {(()=>{const sel=Object.keys(selScr).filter(c=>selScr[c]);return sel.length>0?(
                 <div className="note" style={{marginTop:6,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                   <span>已勾選 {sel.length} 檔 →</span>
@@ -1501,6 +1503,7 @@ function App(){
                   </tbody>
                 </table>
               </div>
+              <div className="totoprow"><button className="totopbtn" onClick={()=>scrTableTopRef.current&&scrTableTopRef.current.scrollIntoView({behavior:"smooth",block:"start"})}>↑ 回到表格頂端</button></div>
             </React.Fragment>
           )}
         </div>
@@ -1560,7 +1563,7 @@ function App(){
             <div style={{color:"var(--dim)",fontSize:13,padding:"8px 0"}}>載入中…</div>
           ):(
             <React.Fragment>
-              <div className="note" style={{marginTop:0}}>符合勾選條件共 {pickRows.length} 檔。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈亦列入）；ROE＝近 4 季純益÷最新股東權益；EPS季增＝最新單季÷上一單季−1、EPS年增＝最新單季÷去年同季−1（基期須為正）；EPS複合成長率＝n 年年度 EPS CAGR（同財務指標圖定義，終點為最新完整年度）。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。股價：{(snap&&snap.priceDate)||"最近交易日"}・財報彙總：{scrData.updated}</div>
+              <div ref={pickTableTopRef} className="note" style={{marginTop:0}}>符合勾選條件共 {pickRows.length} 檔。營收／盈餘成長＝近 4 季 vs 前 4 季（需連續 8 季；虧轉盈亦列入）；ROE＝近 4 季純益÷最新股東權益；EPS季增＝最新單季÷上一單季−1、EPS年增＝最新單季÷去年同季−1（基期須為正）；EPS複合成長率＝n 年年度 EPS CAGR（同財務指標圖定義，終點為最新完整年度）。估價：本益比＝現價÷近 4 季 EPS；EPS 成長率＝連續四季 EPS÷去年 EPS−1；本益成長比＝本益比÷EPS 成長率（成長率為正才列；＜1 相對便宜、≈1 合理、＞2 偏貴）；最低／次低 PE 價＝歷年年度平均本益比最低／次低×近 4 季 EPS。點欄位名稱排序、點列開啟該檔。股價：{(snap&&snap.priceDate)||"最近交易日"}・財報彙總：{scrData.updated}</div>
               {(()=>{const sel=Object.keys(selPick).filter(c=>selPick[c]);return sel.length>0?(
                 <div className="note" style={{marginTop:6,display:"flex",gap:10,alignItems:"center",flexWrap:"wrap"}}>
                   <span>已勾選 {sel.length} 檔 →</span>
@@ -1596,6 +1599,7 @@ function App(){
                   </tbody>
                 </table>
               </div>
+              <div className="totoprow"><button className="totopbtn" onClick={()=>pickTableTopRef.current&&pickTableTopRef.current.scrollIntoView({behavior:"smooth",block:"start"})}>↑ 回到表格頂端</button></div>
             </React.Fragment>
           )}
         </div>

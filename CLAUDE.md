@@ -23,6 +23,7 @@
 2. **TPEX 封鎖 Cloudflare Workers 出口 IP**（302 無限重導向至 /errors，openapi 與 www 端點一體封鎖），且全部端點**無 CORS**。任何上櫃「即時」需求都只能走 Actions 產生靜態檔，不要再嘗試 Worker 代理或瀏覽器直連。
 3. `data/fin/*.json` 以 **XBRL 為主要來源**（33 季全數入庫，上市＋上櫃＋夾帶興櫃/公發）；爬蟲舊值僅在 XBRL 無值欄位保留。`div` 陣列仍為股利爬蟲來源（已回補 105 年起全市場），XBRL 不含股利。
 4. **前端改動必做三驗證**：`npm run build` 預編譯＋`npm run check` 產物一致性＋（改到 model/finView/loadHistory 時）執行期煙霧測試。詳見「前端修改 SOP」。
+5. **自動化護欄**：`pipeline/validate_data.py` 檢查季度覆蓋、screen/fin 一致性與非有限數值；`.github/workflows/frontend-check.yml` 在前端、資料與驗證程式變更時執行 build 一致性、資料健檢與瀏覽器煙霧測試。
 
 ---
 
@@ -86,10 +87,12 @@ index.html（靜態外殼，繁中 UI，GitHub Pages）＋ src/app.jsx（React 1
 ├─ 歷年價格 → data/price/{code}.json；當年：上市 /bundle、上櫃 data/tpex_ytd.json
 ├─ 財報/股利 → data/fin/{code}.json（財報＝XBRL；股利＝MOPS 爬蟲）
 ├─ 篩選彙總 → data/screen.json（--build-screen，含 _split_adjust 分割修正）
+├─ 更新狀態 → data/status.json（前端顯示財報最新季、更新日與股價日期）
 └─ 個股消息 → cnyes 直連＋MOPS 法說會外連
 
 pipeline/fetch_mops.py（股利爬蟲＋build_screen）/ xbrl_ingest.py / price_ingest.py
-.github/workflows/findata.yml（季更）/ pricedata.yml（月更）/ tpexsnap.yml（每日）
+pipeline/validate_data.py（財務資料健康檢查）
+.github/workflows/findata.yml（季更＋入庫前健檢）/ frontend-check.yml（前端與資料 CI）/ pricedata.yml（月更）/ tpexsnap.yml（每日）
 worker.js（備份；不含任何 TPEX）
 ```
 
@@ -293,8 +296,9 @@ python3 -c "import json;d=json.load(open('data/fin/2330.json'));print('2330 最�
 python3 -c "import json;d=json.load(open('data/fin/2330.json'));k=sorted(d['q'])[-1];print('2330 該季 rev/ni/eps:',d['q'][k].get('rev'),d['q'][k].get('ni'),d['q'][k].get('eps'))"
 python3 -c "import json;d=json.load(open('data/screen.json'));import collections;c=collections.Counter(r['q'] for r in d['rows']);print('screen 最新季分布:',dict(sorted(c.items(),reverse=True)[:3]));print('updated:',d['updated'])"
 python3 -c "import json;d=json.load(open('data/screen.json'));r=[x for x in d['rows'] if x['c']=='2330'][0];print('2330 screen 列:',r)"
+python3 pipeline/validate_data.py
 ```
-通過標準：① 2330 最新季＝本季；② rev/ni/eps 非空且量級合理（rev 千元、eps 元）；③ screen 最新季分布最大宗＝本季（約 2,000 檔上下；數百檔停在舊季＝興櫃/公發屬正常，見 A-7）；④ 2330 的 eps4 有值。
+通過標準：① 2330 最新季＝本季；② rev/ni/eps 非空且量級合理（rev 千元、eps 元）；③ screen 最新季分布最大宗＝本季（約 2,000 檔上下；數百檔停在舊季＝興櫃/公發屬正常，見 A-7）；④ 2330 的 eps4 有值；⑤ 自動健康檢查顯示 `PASS`。
 push 後 1〜2 分鐘再驗網站：開 2330 財務指標，圖表最右「近4季」值應更新；盤後選股表「最新季」欄應出現本季。
 
 #### A-4 程式碼連動地圖（哪些自動更新、哪些絕對不要動）
@@ -384,10 +388,11 @@ XBRL/ 各季資料夾累積數 GB。資料已入庫 data/fin 後，舊季資料�
 
 1. **抓 repo 最新 `src/app.jsx`、`index.html`、`app.js` 為基底**（不可用舊對話殘留版本）
 2. 改動（str_replace 精準替換；大範圍重排用括號配對抽取區塊再重組，改完立即抽驗順序）
-3. **預編譯與產物一致性**：首次執行 `npm ci`；每次修改後執行 `npm run build`，再執行 `npm run check`。`app.js` 必須和 `src/app.jsx` 同一 commit；正式頁不得出現 `text/babel`、`@babel/standalone` 或外部 React CDN。
-4. **執行期煙霧測試（2026-07-12 白畫面事故後新增，改到 model／finView／loadHistory／finQuarters 必做）**：以 regex 抽出該 useMemo 主體，補上常數（BAND_YEARS/YEARS_BACK/CUM_FIELDS）與 finQuarters/trailing4，用真實 fin JSON（curl raw.githubusercontent 抓 data/fin/2330.json）跑「有財報／無財報（finRows=null）」兩種情境，任何 throw 都不得交付。預編譯抓不到作用域／未定義變數這類執行期錯誤
-5. 交付檔案給 Dale（放 repo 根目錄），git 指令單一 code block 無行內註解
-6. **改壞的第一動作是 revert 不是硬修**
+3. **預編譯與產物一致性**：首次執行 `npm ci`；每次修改後執行 `npm run build`，再執行 `npm run check`。build 會依 `app.js` 內容雜湊自動改寫 `index.html` 的 `app.js?v=xxxxxxxxxxxx`，避免瀏覽器沿用舊 bundle；不得手動指定版本字串。`app.js` 必須和 `src/app.jsx` 同一 commit；正式頁不得出現 `text/babel`、`@babel/standalone` 或外部 React CDN。
+4. **瀏覽器自動測試**：涉及查詢、模式切換、資料狀態或表格互動時執行 `npm run test:browser`；CI 也會以 Chromium 自動執行。
+5. **執行期煙霧測試（2026-07-12 白畫面事故後新增，改到 model／finView／loadHistory／finQuarters 必做）**：以 regex 抽出該 useMemo 主體，補上常數（BAND_YEARS/YEARS_BACK/CUM_FIELDS）與 finQuarters/trailing4，用真實 fin JSON（curl raw.githubusercontent 抓 data/fin/2330.json）跑「有財報／無財報（finRows=null）」兩種情境，任何 throw 都不得交付。預編譯抓不到作用域／未定義變數這類執行期錯誤
+6. 交付檔案給 Dale（放 repo 根目錄），git 指令單一 code block 無行內註解
+7. **改壞的第一動作是 revert 不是硬修**
 
 ### E. 給 Claude Code／新對話的執行守則
 

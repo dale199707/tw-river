@@ -1,0 +1,70 @@
+name: Frontend and Data Checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "app.js"
+      - "src/**"
+      - "scripts/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.mjs"
+      - "pipeline/**"
+      - "data/status.json"
+      - "data/screen.json"
+      - "data/fin/**"
+      - ".github/workflows/frontend-check.yml"
+  pull_request:
+    paths:
+      - "index.html"
+      - "app.js"
+      - "src/**"
+      - "scripts/**"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.mjs"
+      - "pipeline/**"
+      - "data/status.json"
+      - "data/screen.json"
+      - "data/fin/**"
+      - ".github/workflows/frontend-check.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: frontend-data-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Check compiled frontend
+        run: npm run check
+
+      - name: Validate financial data
+        run: python3 pipeline/validate_data.py
+
+      - name: Run browser smoke tests
+        run: npm run test:browser
