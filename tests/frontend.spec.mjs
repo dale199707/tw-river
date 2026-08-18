@@ -55,7 +55,7 @@ async function mockMarketApis(page) {
   await page.route("**/openapi/v1/exchangeReport/STOCK_DAY_AVG_ALL", route => route.fulfill({
     json: [{Code: "2330", ClosingPrice: "2395", MonthlyAveragePrice: "2300"}],
   }));
-  await page.route("**/data/tpex_snap.json", route => route.fulfill({json: tpexSnapshot}));
+  await page.route("**/data/tpex_snap.json*", route => route.fulfill({json: tpexSnapshot}));
   await page.route("**/data/tpex_ytd.json", route => route.fulfill({
     json: {year: 2026, last: "2026-08-18", m: {3265: {8: {hi: 190.5, lo: 141, sum: 1969, n: 12}}}},
   }));
@@ -112,6 +112,25 @@ test("選股表可一鍵回到頂端", async ({page}) => {
 
 test("上櫃股票顯示最新快照與正確市場類別", async ({page}) => {
   const problems = await mockMarketApis(page);
+  let tpexRequests = 0;
+  page.on("request", request => {
+    if (request.url().includes("/data/tpex_snap.json")) tpexRequests += 1;
+  });
+  await page.addInitScript(() => {
+    const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Taipei"}));
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const hour = now.getHours();
+    const key = `twri-snap4-${date}-${hour < 14 ? "a" : hour < 18 ? `h${hour}` : "b"}`;
+    localStorage.setItem(key, JSON.stringify({
+      companies: [{
+        code: "3265", name: "台星科", full: "台星科股份有限公司", ind: "半導體",
+        chair: "黃興陽", capital: 1362616590, est: "20000426", ipo: "20050802",
+        biz: "舊快取", market: "tpex",
+      }],
+      quotes: {3265: {pe: 25.39, pb: 3.9, yield: 2.27, close: 181}},
+      tpexPriceDate: "20260813",
+    }));
+  });
   await page.goto("/");
 
   const search = page.getByPlaceholder("輸入股號或股名（例：2330 或 台積電）");
@@ -122,5 +141,6 @@ test("上櫃股票顯示最新快照與正確市場類別", async ({page}) => {
   await expect(page.getByText("171.00", {exact: true})).toBeVisible();
   await expect(page.getByText("股價 2026/08/18", {exact: true})).toBeVisible();
   await expect(page.getByText("上櫃公司", {exact: true})).toBeVisible();
+  expect(tpexRequests).toBeGreaterThan(0);
   expect(problems).toEqual([]);
 });

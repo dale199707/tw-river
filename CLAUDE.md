@@ -67,7 +67,7 @@
 - `.github/workflows/tpexsnap.yml`：平日 16:40 台北跑 `--tpex-snap --delay 2`，commit `data/tpex_snap.json`（公司清單＋當日 pe/pb/yield/close）＋`data/tpex_ytd.json`（當年逐月累計）
 - `--tpex-snap` 特性：斷點＝ytd last 日期；假日/未發佈不推進、隔日續補；blocked 中止但已累計先落檔；重跑冪等；公司清單失敗沿用舊清單。**收盤與 PE/PB/殖利率已解耦**：pera 失敗時仍更新最新 close/date，估值沿用舊快照並以 `ratioDate` 標記；同日重跑會繼續嘗試補新估值。
 - **上櫃收盤時效＝每日 16:4x，非即時**；上市維持 Worker /today（約 15:00–15:30 反映當日收盤）
-- 前端：公司清單 TWSE openapi＋tpex_snap concat（`market:"twse"|"tpex"`）；`loadHistory` 歷史年走 data/price、當年上市走 /bundle、上櫃讀 tpex_ytd；快照 localStorage 鍵 `twri-snap3-`
+- 前端：公司清單 TWSE openapi＋tpex_snap concat（`market:"twse"|"tpex"`）；`loadHistory` 歷史年走 data/price、當年上市走 /bundle、上櫃讀 tpex_ytd；快照 localStorage 鍵 `twri-snap4-`。即使整體快照已命中 localStorage，每次開頁仍以 10 分鐘 URL 版本檢查 tpex_snap，成功後覆蓋上櫃公司、報價與資料日，避免晚間固定鍵鎖住舊收盤。
 - Worker 內**禁止**任何 TPEX 抓取
 
 ### 股利（fetch_mops.py）
@@ -175,7 +175,7 @@ props：`title, labels, series, unit, decimals, hover, stacked, ylog, dots, endL
 - 全市場篩選面板維持 300 截斷；個股內容閘門 `{stock&&!scrOpen&&!pickOpen&&…}`；screen.json 載入 effect **依賴陣列必須含 pickOpen**（曾漏加致永遠載入中）
 
 ### 快取三層與自癒
-1. localStorage 快照 `twri-snap3-*`（snapKey：台北 <14=a、14–18=h{hh} 每小時、≥18=b；v3 加入上櫃股價資料日）
+1. localStorage 快照 `twri-snap4-*`（snapKey：台北 <14=a、14–18=h{hh} 每小時、≥18=b；v4 會在命中快取時另行重抓 tpex_snap，自動更新上櫃收盤）
 2. localStorage 年資料 `twri-y-{code}-{y}`（歷史年永久、當年當日）。**殘缺快取自癒（v16）**：歷史年若 eps/bvps/dps 全 null（/bundle 限流時代殘留），loadHistory 視為無效、改讀靜態檔重算覆寫
 3. Worker/瀏覽器 HTTP 快取
 
@@ -373,7 +373,7 @@ XBRL/ 各季資料夾累積數 GB。資料已入庫 data/fin 後，舊季資料�
 | 症狀 | 依序檢查 | 處置 |
 |---|---|---|
 | 上市收盤不對/停舊日 | `curl -s https://tw-river-api.dale199707.workers.dev/today` 看 date | date 舊＝未發佈或快取，30 分自癒；error 見 Worker 偵錯 |
-| 上櫃收盤/快照全掛 | 開 data/tpex_snap.json 看 date | 舊＝tpexsnap 失敗照 B；新＝清 localStorage |
+| 上櫃收盤/快照全掛 | 開 data/tpex_snap.json 看 date | 舊＝tpexsnap 失敗照 B；新＝重新整理，v4 會略過舊上櫃 localStorage（若仍舊再清快取） |
 | 河流圖歷史年空白/形狀怪 | 開 data/price/{code}.json 是否含該年 | 無檔＝pipeline 未涵蓋；有檔仍怪＝清 localStorage（殘缺快取自癒 v16 起會自動處理，清了更快） |
 | 財務指標/檢驗圖空白 | 開 data/fin/{code}.json 的 q 鍵 | 無新季＝XBRL 未入庫（A 節）；金融業 inv/ar/ap 空正常 |
 | 某圖整張消失 | 先查本檔「隱藏中」清單是否本來就藏 | 非隱藏清單→查該圖 gate（hasDetail/hasBorrow/hasNonop/divY/epsCagr）對應資料欄 |

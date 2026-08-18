@@ -20,12 +20,13 @@ const quarterNo = q => {
   return m?Number(m[1])*4+Number(m[2])-1:null;
 };
 const todayKey = () => new Date().toISOString().slice(0,10);
+const tenMinuteKey = () => Math.floor(Date.now()/600000);
 /* 全市場快照的快取鍵：台北時間。14:00 前=前日收盤(a)；14–18 時每小時重抓一次(hN，等 TWSE 發佈今日收盤)；18 時後固定(b) */
 const snapKey = () => {
   const t = new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Taipei"}));
   const d = `${t.getFullYear()}-${String(t.getMonth()+1).padStart(2,"0")}-${String(t.getDate()).padStart(2,"0")}`;
   const h = t.getHours();
-  return `twri-snap3-${d}-${h<14?"a":h<18?"h"+h:"b"}`;
+  return `twri-snap4-${d}-${h<14?"a":h<18?"h"+h:"b"}`;
 };
 
 const cacheGet = k => { try{ const s=localStorage.getItem(k); return s?JSON.parse(s):null; }catch(e){ return null; } };
@@ -54,7 +55,28 @@ async function loadSnapshots(){
   const key = snapKey();
   const c = cacheGet(key);
   let snap;
-  if(c){ snap=c; }
+  if(c){
+    snap=c;
+    /* 上櫃快照由 GitHub Actions 獨立更新，不能被晚上固定的整體快照鍵鎖住。
+       每次開頁以 10 分鐘版本讀一次；成功後覆蓋舊的上櫃公司、報價與資料日。 */
+    const osnap=await fetchJSON(`data/tpex_snap.json?v=${tenMinuteKey()}`).catch(()=>null);
+    if(osnap&&osnap.q){
+      const oldTpex=new Set((snap.companies||[]).filter(r=>r.market==="tpex").map(r=>r.code));
+      oldTpex.forEach(cd=>{ delete snap.quotes[cd]; });
+      snap.companies=(snap.companies||[]).filter(r=>r.market!=="tpex").concat(((osnap.companies)||[]).map(r=>({
+        code:r.c, name:r.n||r.f, full:r.f,
+        ind:INDUSTRY[r.i]||r.i||"—",
+        chair:r.ch||"—",
+        capital:r.cap,
+        est:r.est, ipo:r.ipo,
+        biz:(String(r.b||"").trim())||null,
+        market:"tpex",
+      })));
+      Object.keys(osnap.q).forEach(cd=>{ const s=osnap.q[cd]; snap.quotes[cd]={pe:s.pe,pb:s.pb,yield:s.yield,close:s.close}; });
+      snap.tpexPriceDate=osnap.date||snap.tpexPriceDate||null;
+      cacheSet(key,snap);
+    }
+  }
   else{
     /* 上櫃：TPEX 擋 Cloudflare 出口且端點無 CORS，Worker 代理與瀏覽器直連皆不可行；
        改讀 Actions 每日產生的同源靜態檔 data/tpex_snap.json（--tpex-snap）。
