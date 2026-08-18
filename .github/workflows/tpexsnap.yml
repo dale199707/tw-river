@@ -22,6 +22,9 @@ jobs:
       - name: 上櫃每日快照＋當年逐月累計
         run: python3 pipeline/price_ingest.py --tpex-snap --delay 2
 
+      - name: 驗證上櫃快照日期與完整性
+        run: python3 pipeline/validate_tpex_data.py
+
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"

@@ -23,6 +23,24 @@ const companies = [
   },
 ];
 
+const tpexSnapshot = {
+  updated: "2026-08-18 09:00",
+  date: "20260818",
+  ratioDate: "20260813",
+  companies: [{
+    c: "3265",
+    n: "台星科",
+    f: "台星科股份有限公司",
+    i: "24",
+    ch: "黃興陽",
+    cap: 1362616590,
+    est: "20000426",
+    ipo: "20050802",
+    b: "積體電路、IC及其測試機組之研發及測試",
+  }],
+  q: {3265: {pe: 25.39, pb: 3.9, yield: 2.27, close: 171}},
+};
+
 async function mockMarketApis(page) {
   const problems = [];
   page.on("console", message => {
@@ -36,6 +54,10 @@ async function mockMarketApis(page) {
   }));
   await page.route("**/openapi/v1/exchangeReport/STOCK_DAY_AVG_ALL", route => route.fulfill({
     json: [{Code: "2330", ClosingPrice: "2395", MonthlyAveragePrice: "2300"}],
+  }));
+  await page.route("**/data/tpex_snap.json", route => route.fulfill({json: tpexSnapshot}));
+  await page.route("**/data/tpex_ytd.json", route => route.fulfill({
+    json: {year: 2026, last: "2026-08-18", m: {3265: {8: {hi: 190.5, lo: 141, sum: 1969, n: 12}}}},
   }));
   await page.route("**/today", route => route.fulfill({
     json: {date: "20260814", n: 1, close: {2330: 2395}},
@@ -85,5 +107,20 @@ test("選股表可一鍵回到頂端", async ({page}) => {
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
   await topButton.evaluate(button => button.click());
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(400);
+  expect(problems).toEqual([]);
+});
+
+test("上櫃股票顯示最新快照與正確市場類別", async ({page}) => {
+  const problems = await mockMarketApis(page);
+  await page.goto("/");
+
+  const search = page.getByPlaceholder("輸入股號或股名（例：2330 或 台積電）");
+  await expect(page.getByRole("button", {name: "查詢"})).toBeEnabled();
+  await search.fill("3265");
+  await page.getByRole("button", {name: "查詢"}).click();
+
+  await expect(page.getByText("171.00", {exact: true})).toBeVisible();
+  await expect(page.getByText("股價 2026/08/18", {exact: true})).toBeVisible();
+  await expect(page.getByText("上櫃公司", {exact: true})).toBeVisible();
   expect(problems).toEqual([]);
 });

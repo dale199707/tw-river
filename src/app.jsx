@@ -1796,7 +1796,7 @@ function App(){
         <div className="card">
           <div className="cardtitle">公司基本資料</div>
           <div className="infogrid">
-            <div className="infoitem"><div className="k">市場類別</div><div className="v">上市公司</div></div>
+            <div className="infoitem"><div className="k">市場類別</div><div className="v">{stock.market==="tpex"?"上櫃公司":"上市公司"}</div></div>
             <div className="infoitem"><div className="k">產業別</div><div className="v">{stock.ind}</div></div>
             <div className="infoitem"><div className="k">資本額（億）</div><div className="v mono">{stock.capital!=null?fmt(stock.capital/1e8,1):"—"}</div></div>
             <div className="infoitem"><div className="k">成立年數</div><div className="v mono">{yearsAgo(stock.est)}</div></div>
@@ -2218,7 +2218,7 @@ function App(){
       {!stock&&!snapErr&&(
         <div className="card" style={{textAlign:"center",padding:"48px 16px",color:"var(--dim)"}}>
           輸入股號或股名開始查詢<br/>
-          <span style={{fontSize:12}}>目前支援上市（TWSE）股票 · 首次查詢會抓取近 {YEARS_BACK} 年歷史資料並快取於瀏覽器</span>
+          <span style={{fontSize:12}}>目前支援上市（TWSE）與上櫃（TPEX）股票 · 首次查詢會抓取近 {YEARS_BACK} 年歷史資料並快取於瀏覽器</span>
         </div>
       )}
     </div>

@@ -402,6 +402,34 @@ def tpex_fetch_pera(fetcher, d):
     return "ok", out
 
 
+def build_tpex_snapshot(companies, latest_close, latest_date, pera, old=None):
+    """組合上櫃快照；估值端點失敗或缺個股時沿用舊比率，不阻擋最新收盤。"""
+    old = old if isinstance(old, dict) else {}
+    old_q = old.get("q") if isinstance(old.get("q"), dict) else {}
+    pera = pera if isinstance(pera, dict) else {}
+    date_str = latest_date.strftime("%Y%m%d")
+    ratio_date = date_str if pera else (old.get("ratioDate") or old.get("date"))
+    q = {}
+    for company in companies:
+        code = company["c"]
+        prior = old_q.get(code) if isinstance(old_q.get(code), dict) else {}
+        if code in pera:
+            pe, pb, yl = pera[code]
+        else:
+            pe, pb, yl = prior.get("pe"), prior.get("pb"), prior.get("yield")
+        close = latest_close.get(code, prior.get("close"))
+        if close is None and pe is None and pb is None and yl is None:
+            continue
+        q[code] = {"pe": pe, "pb": pb, "yield": yl, "close": close}
+    return {
+        "updated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M"),
+        "date": date_str,
+        "ratioDate": ratio_date,
+        "companies": companies,
+        "q": q,
+    }
+
+
 def tpex_load_codes():
     print("取得上櫃公司清單（openapi mopsfin_t187ap03_O）…", flush=True)
     state, j = http_get_json(TPEX_COMPANIES)
@@ -633,31 +661,19 @@ def run_tpex_snap(args):
         except Exception:
             old = None
     date_str = latest_date.strftime("%Y%m%d")
-    if old and old.get("date") == date_str and old.get("companies") == companies:
+    old_ratio_date = (old.get("ratioDate") or old.get("date")) if old else None
+    if old and old.get("date") == date_str and old_ratio_date == date_str and old.get("companies") == companies:
         print(f"snap 已是最新（資料日 {date_str}），不重寫")
         return
 
     state, pera = tpex_fetch_pera(fetcher, latest_date)
     if state != "ok" or not pera:
-        print("!! pera 抓取失敗，snap 不更新（ytd 已落檔，下次自癒）")
-        return
-    q = {}
-    for code in codes:
-        pe = pb = yl = None
-        if code in pera:
-            pe, pb, yl = pera[code]
-        close = latest_close.get(code)
-        if close is None and pe is None and pb is None and yl is None:
-            continue
-        q[code] = {"pe": pe, "pb": pb, "yield": yl, "close": close}
-    snap = {
-        "updated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M"),
-        "date": date_str,
-        "companies": companies,
-        "q": q,
-    }
+        print("!! pera 抓取失敗，沿用上一份 PE/PB/殖利率；最新收盤仍照常更新", flush=True)
+        pera = None
+    snap = build_tpex_snapshot(companies, latest_close, latest_date, pera, old)
     TPEX_SNAP.write_text(json.dumps(snap, separators=(",", ":"), ensure_ascii=False))
-    print(f"tpex_snap.json 已更新（資料日 {date_str}｜quotes {len(q)} 檔）")
+    ratio_note = snap.get("ratioDate") or "無"
+    print(f"tpex_snap.json 已更新（資料日 {date_str}｜估值日 {ratio_note}｜quotes {len(snap['q'])} 檔）")
 
 
 def tpex_load_progress():

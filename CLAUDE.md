@@ -23,7 +23,7 @@
 2. **TPEX 封鎖 Cloudflare Workers 出口 IP**（302 無限重導向至 /errors，openapi 與 www 端點一體封鎖），且全部端點**無 CORS**。任何上櫃「即時」需求都只能走 Actions 產生靜態檔，不要再嘗試 Worker 代理或瀏覽器直連。
 3. `data/fin/*.json` 以 **XBRL 為主要來源**（33 季全數入庫，上市＋上櫃＋夾帶興櫃/公發）；爬蟲舊值僅在 XBRL 無值欄位保留。`div` 陣列仍為股利爬蟲來源（已回補 105 年起全市場），XBRL 不含股利。
 4. **前端改動必做三驗證**：`npm run build` 預編譯＋`npm run check` 產物一致性＋（改到 model/finView/loadHistory 時）執行期煙霧測試。詳見「前端修改 SOP」。
-5. **自動化護欄**：`pipeline/validate_data.py` 檢查季度覆蓋、screen/fin 一致性與非有限數值；`.github/workflows/frontend-check.yml` 在前端、資料與驗證程式變更時執行 build 一致性、資料健檢與瀏覽器煙霧測試。
+5. **自動化護欄**：`pipeline/validate_data.py` 檢查季度覆蓋、screen/fin 一致性與非有限數值；`pipeline/validate_tpex_data.py` 防止 TPEX 的 YTD 斷點比每日快照新；`.github/workflows/frontend-check.yml` 在前端、資料與驗證程式變更時執行 build 一致性、資料健檢與瀏覽器煙霧測試。
 
 ---
 
@@ -65,7 +65,7 @@
 
 - **封鎖實況**：Cloudflare 出口被封＋全端點無 CORS → 只能 GitHub Actions（可正常存取）產靜態檔
 - `.github/workflows/tpexsnap.yml`：平日 16:40 台北跑 `--tpex-snap --delay 2`，commit `data/tpex_snap.json`（公司清單＋當日 pe/pb/yield/close）＋`data/tpex_ytd.json`（當年逐月累計）
-- `--tpex-snap` 特性：斷點＝ytd last 日期；假日/未發佈不推進、隔日續補；blocked 中止但已累計先落檔；重跑冪等；公司清單失敗沿用舊清單
+- `--tpex-snap` 特性：斷點＝ytd last 日期；假日/未發佈不推進、隔日續補；blocked 中止但已累計先落檔；重跑冪等；公司清單失敗沿用舊清單。**收盤與 PE/PB/殖利率已解耦**：pera 失敗時仍更新最新 close/date，估值沿用舊快照並以 `ratioDate` 標記；同日重跑會繼續嘗試補新估值。
 - **上櫃收盤時效＝每日 16:4x，非即時**；上市維持 Worker /today（約 15:00–15:30 反映當日收盤）
 - 前端：公司清單 TWSE openapi＋tpex_snap concat（`market:"twse"|"tpex"`）；`loadHistory` 歷史年走 data/price、當年上市走 /bundle、上櫃讀 tpex_ytd；快照 localStorage 鍵 `twri-snap3-`
 - Worker 內**禁止**任何 TPEX 抓取
@@ -91,7 +91,7 @@ index.html（靜態外殼，繁中 UI，GitHub Pages）＋ src/app.jsx（React 1
 └─ 個股消息 → cnyes 直連＋MOPS 法說會外連
 
 pipeline/fetch_mops.py（股利爬蟲＋build_screen）/ xbrl_ingest.py / price_ingest.py
-pipeline/validate_data.py（財務資料健康檢查）
+pipeline/validate_data.py（財務資料健康檢查）/ validate_tpex_data.py（TPEX 快照與 YTD 日期一致性）
 .github/workflows/findata.yml（季更＋入庫前健檢）/ frontend-check.yml（前端與資料 CI）/ pricedata.yml（月更）/ tpexsnap.yml（每日）
 worker.js（備份；不含任何 TPEX）
 ```
@@ -362,7 +362,7 @@ XBRL/ 各季資料夾累積數 GB。資料已入庫 data/fin 後，舊季資料�
 
 ### B. 自動化失敗處理（收到 Actions 失敗信時）
 
-**tpexsnap（每平日）**：單日失敗＝正常（髒 runner IP），不用處理隔日自癒。連 3 天以上失敗→開 log 看公司清單 state/detail；HTML errors 頁＝IP 問題手動 Run workflow 重抽；其他帶 log 開新對話。
+**tpexsnap（每平日）**：dailyQuotes 單日失敗＝正常（髒 runner IP），不用處理隔日自癒。pera 單獨失敗時股價仍更新、PE/PB/殖利率沿用舊值。工作最後會跑 `validate_tpex_data.py`，若 YTD 已前進但快照日期沒跟上會直接失敗，不再出現 Actions 綠燈但股價停舊日。連 3 天以上失敗→開 log 看公司清單 state/detail；HTML errors 頁＝IP 問題手動 Run workflow 重抽；其他帶 log 開新對話。
 **pricedata（每月 6 日）**：失敗先手動 Run 重試；「被擋待重試年度 ≠ 0」再 Run 續補（檔案即斷點）。每年 1 月留意新增前一完結年，抽驗 data/price/2330.json 含新年鍵。
 **findata（每季 16 日）**：多半 MOPS 偶發 502，手動 Run 重跑即可（merge 冪等），跑完抽一檔看股利圖最新期別。
 
