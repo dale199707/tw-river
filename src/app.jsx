@@ -5,6 +5,7 @@ import {createRoot} from "react-dom/client";
 const PROXY = "https://tw-river-api.dale199707.workers.dev";
 const YEARS_BACK = 9;
 const BAND_YEARS = 3;
+const TODAY_TIMEOUT_MS = 5000;
 const INDUSTRY = {"01":"水泥","02":"食品","03":"塑膠","04":"紡織纖維","05":"電機機械","06":"電器電纜","08":"玻璃陶瓷","09":"造紙","10":"鋼鐵","11":"橡膠","12":"汽車","14":"建材營造","15":"航運","16":"觀光餐旅","17":"金融保險","18":"貿易百貨","19":"綜合","20":"其他","21":"化學","22":"生技醫療","23":"油電燃氣","24":"半導體","25":"電腦及週邊","26":"光電","27":"通信網路","28":"電子零組件","29":"電子通路","30":"資訊服務","31":"其他電子","32":"文化創意","33":"農業科技","34":"電子商務","35":"綠能環保","36":"數位雲端","37":"運動休閒","38":"居家生活"};
 
 /* ============ 工具 ============ */
@@ -42,13 +43,16 @@ async function fetchJSON(url){
 /* 最新收盤（Worker /today v3，STOCK_DAY_ALL 永遠回最近一個交易日、永不比 openapi 舊）：
    有資料就無條件覆蓋 quotes 收盤。15:00 後為當日、之前（含凌晨）為前一交易日 */
 async function loadToday(){
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),TODAY_TIMEOUT_MS);
   try{
-    const r=await fetch(`${PROXY}/today`);
+    const r=await fetch(`${PROXY}/today`,{cache:"no-store",signal:controller.signal});
     if(!r.ok) return null;
     const j=await r.json();
     if(!j||!j.close||!Object.keys(j.close).length) return null;
     return {close:j.close,date:j.date||null};
   }catch(e){ return null; }
+  finally{ clearTimeout(timer); }
 }
 
 async function loadSnapshots(){

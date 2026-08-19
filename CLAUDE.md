@@ -99,7 +99,7 @@ worker.js（備份；不含任何 TPEX）
 ## 資料來源重大踩坑（依重要度）
 
 1. **openapi.twse.com.tw 只有前一交易日**——當日收盤必走 www.twse.com.tw rwd 盤後端點
-2. **STOCK_DAY_ALL 實際回 CSV**（民國年、千分位）。Worker `/today` v3 **不過濾日期**（永遠回最近交易日、永不比 openapi 舊）；快取：資料日=今天 6h、<今天 30 分。v2 教訓：只接受「資料日=今天」造成午夜盲區
+2. **STOCK_DAY_ALL 實際回 CSV**（民國年、千分位）。Worker `/today` v3 **不過濾日期**（永遠回最近交易日、永不比 openapi 舊）；快取：資料日=今天 6h、<今天 30 分。前端等待 `/today` 最多 5 秒，超時沿用 openapi 收盤，不得讓可選的當日價阻塞整站。v2 教訓：只接受「資料日=今天」造成午夜盲區
 3. **TWSE 會對 Cloudflare 出口限流**。根治＝歷史價格落地（已完成）；/bundle 失敗不進快取、前端重試 3 次
 4. MOPS 編碼：宣告 ISO-8859-1 實際 Big5，用 `r.encoding=r.apparent_encoding`；`t05st09sub` 必須先 POST `ajax_t05st09_new` 暖機＋帶 Referer
 5. Worker 全域 try/catch，例外回 JSON `{error,message,stack}`
@@ -372,7 +372,8 @@ XBRL/ 各季資料夾累積數 GB。資料已入庫 data/fin 後，舊季資料�
 
 | 症狀 | 依序檢查 | 處置 |
 |---|---|---|
-| 上市收盤不對/停舊日 | `curl -s https://tw-river-api.dale199707.workers.dev/today` 看 date | date 舊＝未發佈或快取，30 分自癒；error 見 Worker 偵錯 |
+| 網站一直顯示載入中 | `curl --max-time 20 https://tw-river-api.dale199707.workers.dev/today` | `/today` 無回應時前端 5 秒後應降級完成；仍卡住＝檢查其他三個 openapi 初始化端點 |
+| 上市收盤不對/停舊日 | `curl -s https://tw-river-api.dale199707.workers.dev/today` 看 date | date 舊＝未發佈或快取，30 分自癒；逾時會暫用 openapi 前一交易日收盤；error 見 Worker 偵錯 |
 | 上櫃收盤/快照全掛 | 開 data/tpex_snap.json 看 date | 舊＝tpexsnap 失敗照 B；新＝重新整理，v4 會略過舊上櫃 localStorage（若仍舊再清快取） |
 | 河流圖歷史年空白/形狀怪 | 開 data/price/{code}.json 是否含該年 | 無檔＝pipeline 未涵蓋；有檔仍怪＝清 localStorage（殘缺快取自癒 v16 起會自動處理，清了更快） |
 | 財務指標/檢驗圖空白 | 開 data/fin/{code}.json 的 q 鍵 | 無新季＝XBRL 未入庫（A 節）；金融業 inv/ar/ap 空正常 |

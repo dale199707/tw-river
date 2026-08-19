@@ -41,7 +41,7 @@ const tpexSnapshot = {
   q: {3265: {pe: 25.39, pb: 3.9, yield: 2.27, close: 171}},
 };
 
-async function mockMarketApis(page) {
+async function mockMarketApis(page, {hangToday = false} = {}) {
   const problems = [];
   page.on("console", message => {
     if (["warning", "error"].includes(message.type())) problems.push(message.text());
@@ -59,9 +59,10 @@ async function mockMarketApis(page) {
   await page.route("**/data/tpex_ytd.json", route => route.fulfill({
     json: {year: 2026, last: "2026-08-18", m: {3265: {8: {hi: 190.5, lo: 141, sum: 1969, n: 12}}}},
   }));
-  await page.route("**/today", route => route.fulfill({
-    json: {date: "20260814", n: 1, close: {2330: 2395}},
-  }));
+  await page.route("**/today", route => {
+    if (hangToday) return;
+    return route.fulfill({json: {date: "20260814", n: 1, close: {2330: 2395}}});
+  });
   await page.route("**/bundle?*", route => route.fulfill({json: {years: {}}}));
   return problems;
 }
@@ -142,5 +143,19 @@ test("上櫃股票顯示最新快照與正確市場類別", async ({page}) => {
   await expect(page.getByText("股價 2026/08/18", {exact: true})).toBeVisible();
   await expect(page.getByText("上櫃公司", {exact: true})).toBeVisible();
   expect(tpexRequests).toBeGreaterThan(0);
+  expect(problems).toEqual([]);
+});
+
+test("當日收盤服務未回應時仍可查詢", async ({page}) => {
+  const problems = await mockMarketApis(page, {hangToday: true});
+  await page.goto("/");
+
+  const search = page.getByPlaceholder("輸入股號或股名（例：2330 或 台積電）");
+  await expect(page.getByRole("button", {name: "查詢"})).toBeEnabled({timeout: 8000});
+  await search.fill("2330");
+  await page.getByRole("button", {name: "查詢"}).click();
+
+  await expect(page.getByText("台積電", {exact: true}).first()).toBeVisible();
+  await expect(page.getByText("財報截至 2026Q2", {exact: true})).toBeVisible();
   expect(problems).toEqual([]);
 });
