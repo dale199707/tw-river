@@ -4,6 +4,11 @@ import {readFileSync} from "node:fs";
 /* 季度斷言動態化（2026-11-16）：改讀 data/status.json 的 latestQuarter，
    避免每季 XBRL 入庫後因寫死季度而必然失敗 */
 const LATEST_QUARTER = JSON.parse(readFileSync(new URL("../data/status.json", import.meta.url), "utf8")).latestQuarter;
+/* 1589 永冠-KY 為「長期未申報」測試代表股：其財報季與落後季數同樣改為動態推算 */
+const FIN_1589 = JSON.parse(readFileSync(new URL("../data/fin/1589.json", import.meta.url), "utf8"));
+const Q1589 = Object.keys(FIN_1589.q).sort().at(-1);
+const qIdx = (s) => Number(s.slice(0, 4)) * 4 + Number(s.at(-1));
+const LAG_1589 = qIdx(LATEST_QUARTER) - qIdx(Q1589);
 
 const companies = [
   {
@@ -92,8 +97,8 @@ test("核心查詢、資料狀態與完整模式正常", async ({page}) => {
   await search.fill("1589");
   await page.getByRole("button", {name: "查詢"}).click();
   await expect(page.getByText("無最近收盤價", {exact: true})).toBeVisible();
-  await expect(page.getByText("財報截至 2025Q3", {exact: true})).toBeVisible();
-  await expect(page.getByText("較市場最新季落後 3 季・以最近申報為準", {exact: true})).toBeVisible();
+  await expect(page.getByText(`財報截至 ${Q1589}`, {exact: true})).toBeVisible();
+  await expect(page.getByText(`較市場最新季落後 ${LAG_1589} 季・以最近申報為準`, {exact: true})).toBeVisible();
   expect(problems).toEqual([]);
 });
 
