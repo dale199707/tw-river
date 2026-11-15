@@ -1,4 +1,9 @@
 import {expect, test} from "@playwright/test";
+import {readFileSync} from "node:fs";
+
+/* 季度斷言動態化（2026-11-16）：改讀 data/status.json 的 latestQuarter，
+   避免每季 XBRL 入庫後因寫死季度而必然失敗 */
+const LATEST_QUARTER = JSON.parse(readFileSync(new URL("../data/status.json", import.meta.url), "utf8")).latestQuarter;
 
 const companies = [
   {
@@ -76,7 +81,7 @@ test("核心查詢、資料狀態與完整模式正常", async ({page}) => {
   await search.fill("2330");
   await page.getByRole("button", {name: "查詢"}).click();
 
-  await expect(page.getByText("財報截至 2026Q2", {exact: true})).toBeVisible();
+  await expect(page.getByText(`財報截至 ${LATEST_QUARTER}`, {exact: true})).toBeVisible();
   await expect(page.getByText("2,593.2", {exact: true})).toBeVisible();
   await expect(page.locator('script[src^="app.js?v="]')).toHaveCount(1);
 
@@ -156,6 +161,6 @@ test("當日收盤服務未回應時仍可查詢", async ({page}) => {
   await page.getByRole("button", {name: "查詢"}).click();
 
   await expect(page.getByText("台積電", {exact: true}).first()).toBeVisible();
-  await expect(page.getByText("財報截至 2026Q2", {exact: true})).toBeVisible();
+  await expect(page.getByText(`財報截至 ${LATEST_QUARTER}`, {exact: true})).toBeVisible();
   expect(problems).toEqual([]);
 });
